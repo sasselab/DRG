@@ -20,6 +20,120 @@ from .motif_analysis import align_compute_similarity_motifs, torch_compute_simil
 import matplotlib.patches as mpatches
 
 
+def plot_losses(valfiles, modnames, percentages=False, combine_sets=False, logx=False, adjust_axis=False, savefig=None):
+    if not isinstance(valfiles, list):
+        valfiles = [valfiles]
+    if not isinstance(modnames, list):
+        modnames = [modnames]   
+    if len(valfiles) != len(modnames):
+        print('Number of validation files and model names do not match!')
+        sys.exit(1) 
+    if len(valfiles) > 10:
+        print('Warning: more than 10 validation files provided, this might not be displayed correctly!')    
+
+
+    losses = []
+    for v, valf in enumerate(valfiles):
+        print(valf)
+        loss = np.genfromtxt(valf, dtype=float, delimiter='\t')
+        nanmask = np.unique(np.where(~np.isnan(loss))[0])
+        losses.append(loss[nanmask])
+        if percentages:
+            losses[-1][:, 0] = losses[-1][:, 0] / np.amax(losses[-1][:, 0])
+
+    fig = plt.figure(figsize=(9, 9), dpi=180)
+    cmap = np.append(cm.tab20b(np.arange(0, 20, 4)), cm.tab20c(np.arange(0, 20, 4)), axis=0)
+
+    ax0 = fig.add_subplot(10, 1, 1)
+    width = 0.4 if combine_sets else 0.8
+    ax0.set_position([0.1, 0.78, width, min(1, (len(modnames) / 5)) * 0.17])
+    ax0.tick_params(left=False, labelleft=False, labelbottom=False, bottom=False)
+    rows = min(len(modnames), 4)
+    columns = int(len(modnames) / rows) + int(len(modnames) % rows > 0)
+    ax0.set_xlim([-0.1, columns])
+    ax0.set_ylim([-0.5, rows - 0.5])
+    for m, name in enumerate(modnames):
+        ax0.scatter([int(m / rows)], [rows - 1 - m % rows], color=cmap[m])
+        ax0.text(int(m / rows) + 0.02 * columns, rows - 1 - m % rows, name, va='center', ha='left', fontsize=8)
+
+    ax1 = fig.add_subplot(221)
+    ax1.set_position([0.1, 0.45, 0.38, 0.32])
+    ax1.spines['right'].set_visible(False)
+    ax1.spines['top'].set_visible(False)
+    ax1.tick_params(labelbottom=False)
+    for l, loss in enumerate(losses):
+        ax1.plot(loss[:, 0], loss[:, 1], marker='.', ms=5, alpha=0.5, color=cmap[l])
+    ax1.set_ylabel('Training Loss' if combine_sets else 'Training Loss (val)')
+    if logx:
+        ax1.set_xscale('symlog')
+    ax1.grid()
+
+    ax2 = fig.add_subplot(223)
+    ax2.set_position([0.1, 0.1, 0.38, 0.32])
+    ax2.spines['right'].set_visible(False)
+    ax2.spines['top'].set_visible(False)
+    for l, loss in enumerate(losses):
+        ax2.plot(loss[:, 0], loss[:, 2], marker='.', alpha=0.5, ms=5, color=cmap[l])
+    ax2.set_ylabel('Validation Loss' if combine_sets else 'Validation Loss (val)')
+    ax2.set_xlabel('% Total Epochs' if percentages else 'Epochs')
+    ax2.grid()
+    if logx:
+        ax2.set_xscale('symlog')
+
+    if combine_sets:
+        ax3 = ax1
+        marker = '2'
+    else:
+        ax3 = fig.add_subplot(222)
+        ax3.set_position([0.52, 0.45, 0.38, 0.32])
+        ax3.spines['left'].set_visible(False)
+        ax3.spines['top'].set_visible(False)
+        ax3.tick_params(left=False, labelleft=False, right=True, labelright=True, labelbottom=False)
+        marker = '.'
+    for l, loss in enumerate(losses):
+        ax3.plot(loss[:, 0], loss[:, 3], marker=marker, alpha=0.5, ms=5, color=cmap[l], label='Train')
+
+    if not combine_sets:
+        ax3.set_ylabel('Training Loss (train)')
+        ax3.grid()
+        if logx:
+            ax3.set_xscale('symlog')
+    else:
+        ax3.legend()
+
+    if combine_sets:
+        ax4 = ax2
+    else:
+        ax4 = fig.add_subplot(224)
+        ax4.set_position([0.52, 0.1, 0.38, 0.32])
+        ax4.spines['left'].set_visible(False)
+        ax4.spines['top'].set_visible(False)
+        ax4.tick_params(left=False, labelleft=False, right=True, labelright=True)
+
+    for l, loss in enumerate(losses):
+        ax4.plot(loss[:, 0], loss[:, 4], marker=marker, alpha=0.5, ms=5, color=cmap[l], label='Train')
+
+    if not combine_sets:
+        ax4.set_xlabel('% Total Epochs' if percentages else 'Epochs')
+        ax4.set_ylabel('Validation Loss (train)')
+        ax4.grid()
+        if logx:
+            ax4.set_xscale('symlog')
+    else:
+        ax4.legend()
+
+    if adjust_axis:
+        ax1.set_ylim([min(ax1.get_ylim()[0], ax3.get_ylim()[0]), max(ax1.get_ylim()[1], ax3.get_ylim()[1])])
+        ax2.set_ylim([min(ax2.get_ylim()[0], ax4.get_ylim()[0]), max(ax2.get_ylim()[1], ax4.get_ylim()[1])])
+        if not combine_sets:
+            ax3.set_ylim([min(ax1.get_ylim()[0], ax3.get_ylim()[0]), max(ax1.get_ylim()[1], ax3.get_ylim()[1])])
+            ax4.set_ylim([min(ax2.get_ylim()[0], ax4.get_ylim()[0]), max(ax2.get_ylim()[1], ax4.get_ylim()[1])])
+
+    if savefig:
+        fig.savefig(savefig, dpi=200, bbox_inches='tight')
+    else:
+        plt.show()
+
 def _add_frames(att, locations, ax, color = 'k', cmap = None):
     '''
     Adds frames to a logo plot around per base attributions for visualization
@@ -142,24 +256,63 @@ def _plot_heatmap(arr, cmap = 'coolwarm', ylabel = None, grid = False, ratio=1,
     
     return ax
 
-def _bar_plot(values, width = 0.8, color = 'lightsteelblue', unit = 1, ylim=None, xticklabels=None, yticklabels = None, ax = None):
+def _bar_plot(values, width = 0.8, color = 'lightsteelblue', unit = 1,
+              ylim=None, xticklabels=None, yticks = None, yticklabels = None,
+              ylabel = None, rotation = None, horizontal = False, ax = None):
     '''
     Barplot
     '''
     if ax is None:
         # open a pyplot figure
-        fig = plt.figure(figsize = (len(values) * unit, 3) )
+        if horizontal:
+            fig = plt.figure(figsize = (3, len(values) * unit))
+        else:
+            fig = plt.figure(figsize = (len(values) * unit, 3) )
         ax = fig.add_subplot(111)
     
-    ax.bar(np.arange(len(values)), values, width = width, color = color)
+    if horizontal:
+        ax.barh(np.arange(len(values)), values, height = width, color = color)  
+    else:
+        ax.bar(np.arange(len(values)), values, width = width, color = color)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     if ylim is not None:
-        ax.set_ylim(ylim)
+        if horizontal:
+            ax.set_xlim(ylim)
+        else:
+            ax.set_ylim(ylim)
+    
     if xticklabels is None:
-        ax.tick_params(bottom = False, labelbottom = False)
+        if horizontal:
+            ax.tick_params(left = False, labelleft = False)
+        else:
+            ax.tick_params(bottom = False, labelbottom = False)
     else:
-        ax.set_xticklabels(xticklabels, rotation = 60)
+        if horizontal:
+            ax.set_yticks(np.arange(len(xticklabels)))
+            ax.set_yticklabels(xticklabels, rotation = rotation)
+        else:
+            ax.set_xticks(np.arange(len(xticklabels)))
+            ax.set_xticklabels(xticklabels, rotation = rotation)
+
+    if yticklabels is not None and yticks is not None:
+        if horizontal:
+            ax.set_xticks(yticks)
+            ax.set_xticklabels(yticklabels)
+        else:
+            ax.set_yticks(yticks)
+            ax.set_yticklabels(yticklabels)
+    elif yticks is not None:
+        if horizontal:
+            ax.set_xticks(yticks)
+        else:
+            ax.set_yticks(yticks)
+    if ylabel is not None:
+        if horizontal:
+            ax.set_xlabel(ylabel)
+        else:
+            ax.set_ylabel(ylabel)
+
     return ax
 
 def _generate_xticks(start, end, n):
@@ -1278,14 +1431,16 @@ def vulcano(fc, pv, figname = None, logfc = False, logpv = False, fccutoff=None,
 
 
 
-def plotHist(x, y = None, xcolor='navy', add_yaxis = False, xalpha= 0.5,
+def plotHist(x, y = None, figsize = (3.5, 3.5), dpi = 150,
+            xcolor='navy', add_yaxis = False, add_median = False,
+              xalpha= 0.5,
              ycolor = 'indigo', yalpha = 0.5, addcumulative = False, 
              bins = None, xlabel = None, title = None, logx = False, 
              logy = False, logdata = False):
     '''
     Generates figure with histogram
     '''
-    fig = plt.figure(figsize = (3.5,3.5))
+    fig = plt.figure(figsize = figsize, dpi = dpi)
     axp = fig.add_subplot(111)
     axp.spines['top'].set_visible(False)
     axp.spines['right'].set_visible(False)
@@ -1320,7 +1475,9 @@ def plotHist(x, y = None, xcolor='navy', add_yaxis = False, xalpha= 0.5,
     if add_yaxis:
         print('yaxis',np.amax(a))
         axp.plot([0,0], [0, np.amax(a)], c = 'k', zorder = 5)
-    
+    if add_median:
+        median = np.median(x)
+        axp.plot([median, median], [0, np.amax(a)], c = 'firebrick', zorder = 5)
     if logx:
         if addcumulative:
             axp2.set_xscale('symlog')
@@ -1624,7 +1781,7 @@ def scatterPlot(X, Y, title = None, xlabel = None, ylabel = None, include_fit = 
     if ax is None:
         return_fig = True
         fig = plt.figure(figsize = (3.8,3.8), dpi = dpi)
-        ax.add_subplot(111)
+        ax = fig.add_subplot(111)
     
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
@@ -1669,6 +1826,8 @@ def scatterPlot(X, Y, title = None, xlabel = None, ylabel = None, include_fit = 
             X, Y, color = X[sort], Y[sort], color[sort]
 
     if sizes is not None:
+        if isinstance(sizes, int) or isinstance(sizes, float):
+            sizes = np.ones(len(X)) * sizes
         if isinstance(color, list) or isinstance(color, np.ndarray):
             sizes = np.array(sizes)[sort]
     
@@ -1749,8 +1908,6 @@ def scatterPlot(X, Y, title = None, xlabel = None, ylabel = None, include_fit = 
     if ylim is not None:
         ax.set_ylim(ylim)
     
-    if return_fig:
-        return fig
 
 def plot_scatter(X, Y, titles = None, xlabel = None, ylabel = None, outname = None, include_fit = True, include_mainvar = False, color=None, color_density = False, size = None, alpha = None, lw = None):
     """

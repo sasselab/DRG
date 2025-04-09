@@ -55,7 +55,6 @@ if __name__ == '__main__':
     if '--reverse_complement' in sys.argv:
         reverse_complement = True
         
-    
     if '--testrandom' in sys.argv:
         trand = int(sys.argv[sys.argv.index('--testrandom')+1])
         mask = np.random.permutation(len(X))[:trand]

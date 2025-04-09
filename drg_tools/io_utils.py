@@ -4,6 +4,7 @@
 # Author: Alexander Sasse <alexander.sasse@gmail.com>
 
 import numpy as np
+import ast
 import sys, os
 import glob
 import pandas as pd
@@ -376,27 +377,170 @@ def reverse_complement_seqstring(seq):
     return ''.join(nseq)
 
 
-def readinfasta(fastafile, minlen = 10, upper = True):
+def readinfasta(fastafile, minlen = 10, upper = False, sortbyname = True, selection = None):    
     '''
-    Reads fastas for which sequence is represented as single line
-    TODO: enable function to read old school fastas where sequences is devided into different lines
+    Reads fastas and returns the names and sequences
+    Parameters
+    ----------
+    fastafile : str
+        Location of fasta file
+    minlen : int
+        Minimum length of sequence to be included
+    upper : bool
+        If True, sequences are converted to upper case
+    sortbyname : bool
+        If True, sequences are sorted by name
+    selection : list
+        List of names to be selected
+    Returns
+    -------
+    genes : list
+        List of names of the sequences
+    sequences : list
+        List of sequences
+
     '''
+    if os.path.splitext(fastafile)[1] == '.gz':
+        obj = gzip.open(fastafile, 'rt').readlines()
+    else:
+        obj = open(fastafile, 'r').readlines()
     
-    obj = open(fastafile, 'r').readlines()
     genes = []
     sequences = []
+    sequence = ''
+    name = ''
+    isread = False
     for l, line in enumerate(obj):
         if line[0] == '>':
-            sequence = obj[l+1].strip()
-            if sequence != 'Sequence unavailable' and len(sequence) > minlen:
-                genes.append(line[1:].strip())
-                if upper:
-                    sequence = sequence.upper()
-                sequences.append(sequence)
-    sortgen = np.argsort(genes)
-    genes, sequences = np.array(genes)[sortgen], np.array(sequences)[sortgen]
+            if selection is not None:
+                if line[1:].strip() not in selection:
+                    isread = False
+                    continue
+            if sequence != '':
+                if sequence != 'Sequence unavailable' and len(sequence) > minlen:
+                    genes.append(name)
+                    sequences.append(sequence)
+            name = line[1:].strip()
+            sequence = ''
+            isread = True
+        elif isread:
+            line = line.strip()
+            if upper:
+                line = line.upper()
+            sequence += line
+    if sequence != '':
+        if sequence != 'Sequence unavailable' and len(sequence) > minlen:
+            genes.append(name)
+            sequences.append(sequence)
+    
+    genes, sequences = np.array(genes), np.array(sequences)
+    if sortbyname:
+        sortgen = np.argsort(genes)
+        genes, sequences = np.array(genes)[sortgen], np.array(sequences)[sortgen]
     return genes, sequences
 
+def extract_sequences_from_bed(bedfile, genome, extend_before = 0, extend_after = 0):
+    '''
+    Converts a bed file into numpy array with genomic coordinates to sequences
+    from a genome file
+    genome file can be directory with fastas for each chromosome
+    or a fasta with all chromosomes concatenated
+    bedfile is a numpy array with the first column containing the chromosome
+    and the second and third columns containing the start and end coordinates
+    fourth column is the name, fifth score, and sixth strand
+    Parameters
+    ----------  
+    bedfile : str
+        Location of bed file
+    genome : str
+        Location of genome file or directory
+    extend_before : int 
+        Number of bases to extend before the start coordinate
+    extend_after : int
+        Number of bases to extend after the end coordinate
+    Returns
+    -------
+    names : list
+        List of names of the sequences
+    seqs : list
+        List of sequences
+        
+    '''
+    # read bedfile
+    bedfile = np.genfromtxt(bedfile, dtype = str)
+    # check if bedfile has strand information
+    if np.shape(bedfile)[1] >= 6:
+        strand = bedfile[:,5]
+    else:
+        strand = np.chararray(np.shape(bedfile)[0])
+        strand[:] = '+'
+    
+    # iterate over all chromosomes in the infofile
+    uchroms = np.unique(bedfile[:,0])
+    # check if genome is a directory or a file
+    if os.path.isfile(genome):
+
+        chromosome, genome_seq = readinfasta(genome, selection = uchroms)
+    elif os.path.isdir(genome):
+        chromosome, genome_seq = [], []
+        # iterate over all files in the directory
+        for genfile in os.listdir(genome):
+            if genfile.endswith('.fa') or genfile.endswith('.fasta') or genfile.endswith('.fa.gz'):
+                chrom, gseq = readinfasta(os.path.join(genome, genfile))
+                # check if the chromosome is already in the list
+                if chrom not in chromosome and chrom in uchroms:
+                    chromosome.append(chrom)
+                    genome_seq.append(gseq)
+        # concatenate lists in chromosome and genome_seq
+        genome_seq = np.concatenate(genome_seq)
+        chromosome = np.concatenate(chromosome)
+    else:
+        print('Genome file not found')
+        sys.exit()      
+
+    names = []
+    seqs = []
+    # check if the chromosome is in the genome
+    for chrom in uchroms:
+        if chrom not in chromosome:
+            print('Chromosome', chrom, 'not found in genome')
+            sys.exit()
+        else:
+            # get the index of the chromosome in the genome
+            chromindex = np.where(chromosome == chrom)[0][0]
+            # get the sequence of the chromosome
+            genome = genome_seq[chromindex]
+            # get the length of the chromosome
+            genome_len = len(genome)
+            # check if the start and end coordinates are in the genome
+            mask = bedfile[:,0] == chrom
+            ifile = bedfile[mask]
+            istrand = strand[mask]
+            for i in range(len(ifile)):
+                start, end = int(ifile[i][1]), int(ifile[i][2])
+                if start < 0 or end > genome_len:
+                    print('Start or end coordinates out of bounds for chromosome', chrom)
+                    sys.exit()
+                # get the name of the sequence
+                names.append(ifile[i][3])
+                # get the sequence of the chromosome
+                if istrand[i] == '+':
+                    # add the flanks to the sequence
+                    start = start - extend_before
+                    end = end + extend_after
+                else: 
+                    # add the flanks to the sequence
+                    start = start - extend_after
+                    end = end + extend_before
+                seq = genome[start:end]
+                # check if the strand is negative
+                if istrand[i] == '-':
+                    # reverse complement the sequence
+                    seq = seq[::-1].translate(str.maketrans('ACGT', 'TGCA'))
+                # append the sequence to the list
+                seqs.append(seq)
+       
+    return names, seqs
 
 # Combine filenames to a new output file name, removing text that is redundant in both filenames    
 def create_outname(name1, name2, lword = 'on', replace_suffixes = ['.dat', '.hmot', '.txt', '.npz', '.list', '.tab', '.tsv', '.csv', '.fasta', '.fa', '.bed'], suffix = '', split_characters = ['.', '_', '-', ',']):
@@ -446,34 +590,58 @@ def isint(x):
 
 # check if string can be integer or float
 def numbertype(inbool):
+    # Check if the value is a number (integer or float)
     try:
-        int(inbool)
-    except:
-        pass
-    else:
-        return int(inbool)
-    try:
-        float(inbool)
-    except:
-        pass
-    else:
-        return float(inbool)
-    return inbool
+        return int(value)
+    except ValueError:
+        try:
+            return float(value)
+        except ValueError:
+            pass  # Fall through to return the original string if parsing fails
+    
+    # Return the original string if no conversion was possible
+    return value
 
-# check if str is boolean, a list, or a number, otherwise return string back
-import ast
-def check(inbool):
-    if inbool == 'True' or inbool == 'TRUE' or inbool == 'true':
-        return True
-    elif inbool == 'False' or inbool == 'FALSE' or inbool == 'false':
-        return False
-    elif inbool == 'None' or inbool == 'NONE' or inbool == 'none':
-        return None
-    elif "[" in inbool or "(" in inbool:
-        return ast.literal_eval(inbool)
-    else:
-        inbool = numbertype(inbool)
-    return inbool
+def check(value):
+    """
+    Converts a string to its appropriate type: boolean, None, list, number, or string.
+
+    Args:
+        value (str): The input string to be converted.
+
+    Returns:
+        The converted value in its appropriate type.
+    """
+    # Map common string representations to their corresponding Python values
+    mapping = {
+        'true': True,
+        'false': False,
+        'none': None
+    }
+    
+    # Normalize the input to lowercase for case-insensitive matching
+    lower_value = value.lower()
+    if lower_value in mapping:
+        return mapping[lower_value]
+    
+    # Check if the value is a list or tuple
+    if value.startswith('[') or value.startswith('('):
+        try:
+            return ast.literal_eval(value)
+        except (ValueError, SyntaxError):
+            pass  # Fall through to return the original string if parsing fails
+    
+    # Check if the value is a number (integer or float)
+    try:
+        return int(value)
+    except ValueError:
+        try:
+            return float(value)
+        except ValueError:
+            pass  # Fall through to return the original string if parsing fails
+    
+    # Return the original string if no conversion was possible
+    return value
 
 
 def read_matrix_file(filename, delimiter = None, name_column = 0, data_start_column = 1, value_dtype = float, header = '#', strip_names = '"', column_name_replace = None, row_name_replace = None, unknown_value = 'NA', nan_value = 0):
@@ -651,202 +819,179 @@ def readalign_matrix_files(matrixfiles, split = ',', delimiter = None, align_row
 
 
 
-def readin(inputfile, outputfile, delimiter = ' ', return_header = True, assign_region = True, n_features = 4, combinex = True, mirrorx = False):
+def readin(inputfile, outputfile, delimiter=None, return_header=True,
+            assign_region=True, n_features=4, combinex=True, 
+            mirrorx=False, input_features='seqfeatures', output_features='counts',
+             input_names = 'genenames', output_names = 'names'):
+    """
+    Reads input and output files for neural network training, aligns their data points based on names,
+    and processes them into a format suitable for training.
 
-    '''
-    Reads inputfiles and output files for Neural network training
-    aligns their data points based on names
-    Can also read multiple input and output files if they are provided as string separated by ','
-    '''
+    Parameters:
+    -----------
+    inputfile : str or list
+        Path to the input file(s). Can be a single file or a comma-separated list of files.
+    outputfile : str or list
+        Path to the output file(s). Can be a single file or a comma-separated list of files.
+    delimiter : str, optional
+        Delimiter used in the output file (default is None).
+    return_header : bool, optional
+        Whether to return the header from the output file (default is True).
+    assign_region : bool, optional
+        Whether to assign regions to the input data (default is True).
+    n_features : int, optional
+        Number of features to retain if `assign_region` is False (default is 4).
+    combinex : bool, optional
+        Whether to combine input features into a single array (default is True).
+    mirrorx : bool, optional
+        Whether to realign input features (default is False).
+    input_features : str, optional
+        Key for input features in the input file (default is 'seqfeatures').
+    output_features : str, optional 
+        Key for output features in the output file (default is 'counts').
+    input_names : str, optional
+        Key for input names in the input file (default is 'genenames').
+    output_names : str, optional
+        Key for output names in the output file (default is 'names').
     
-    if ',' in inputfile:
-        inputfiles = inputfile.split(',')
-        X = []
-        inputfeatures = []
-        inputnames = []
-        # determines if kmerfile or sequence one-hot encoding
-        arekmers = True
-        for i, inputfile in enumerate(inputfiles):
-            if os.path.splitext(inputfile)[1] == '.npz':
-                Xin = np.load(inputfile, allow_pickle = True)
-                inpnames = Xin['genenames'].astype(str)
-                sortn = np.argsort(inpnames)
-                inputnames.append(inpnames[sortn])
-                Xi = Xin['seqfeatures']
-                if len(Xi) == 2:
-                    Xi, inputfeats = Xi
-                else:
-                    if 'featurenames' in Xin.files:
-                        inputfeats = Xin['featurenames']
-                    else:
-                        inputfeats = np.arange(np.shape(X)[-1], dtype = int).astype(str)
-                Xi = Xi[sortn]
-                if len(np.shape(Xi))>2:
-                    arekmers = False
-                    inputfeatures.append([x+'_'+str(i) for x in inputfeats])
-                else:
-                    inputfeatures.append(inputfeats)
-                
-                
-                if mirrorx and not arekmers:
-                    Xi = realign(Xi)
-                X.append(Xi)
+    Returns:
+    --------
+    X : np.ndarray or list
+        Processed input data.
+    Y : np.ndarray or list
+        Processed output data.
+    inputnames : np.ndarray
+        Names of the input data points.
+    inputfeatures : np.ndarray
+        Features of the input data.
+    header : np.ndarray or None
+        Header from the output file, if `return_header` is True.
 
-            else: # For fastafiles create onehot encoding 
-                inpnames, inseqs = readinfasta(inputfile)
-                Xin, Xinfeatures = quick_onehot(inseqs)
-                inputfeatures.append([x+'_'+str(i) for x in Xinfeatures])
-                if mirrorx:
-                    Xin = realign(Xin)
-                X.append(Xin)
-                inputnames.append(inpnames)
-                arekmers = False
-        # transpose, and then introduce mirrorx
+    Notes:
+    ------
+    - Supports `.npz` files for input and output, as well as text-based formats.
+    - Aligns input and output data points based on their names.
+    - Handles multiple input and output files, combining or aligning them as needed.
+    """
 
-        comnames = reduce(np.intersect1d, inputnames)
-        X = [X[i][np.isin(inputnames[i],comnames)] for i in range(len(X))]
-        if arekmers:
-            inputfeatures = np.concatenate(inputfeatures)
-        else:
-            inputfeatures = inputfeatures[0]
-            if assign_region:
-                lx = len(X)
-                X = [np.append(X[i], np.ones((np.shape(X[i])[0], np.shape(X[i])[1], lx), dtype = np.int8)*(np.arange(lx)==i).astype(np.int8), axis = -1) for i in range(lx)]
-                inputfeatures = np.append(inputfeatures, ['F'+str(i) for i in range(lx)])
-        if combinex:
-            X = np.concatenate(X, axis = 1)
-        inputnames = comnames
-    else:
-        combinex = True
-        if os.path.splitext(inputfile)[1] == '.npz':
-            Xin = np.load(inputfile, allow_pickle = True)
-            X = Xin['seqfeatures']
-            if len(X) == 2:
-                X, inputfeatures = X
-            else:
-                if 'featurenames' in Xin.files:
-                    inputfeatures = Xin['featurenames']
-                else:
-                    inputfeatures = np.arange(np.shape(X)[-1])
-                
-            arekmers = len(np.shape(X)) <= 2
-            inputnames = Xin['genenames']
-            if assign_region == False and not arekmers:
-                inputfeatures = inputfeatures[:n_features]
-                X = X[:,:,:n_features]
+    def process_input_file(file):
+        """Processes a single input file and returns its data, features, and names."""
+        if os.path.splitext(file)[1] == '.npz':
+            Xin = np.load(file, allow_pickle=True)
+            X = Xin[input_features]
+            inputnames = Xin[input_names].astype(str)
+            inputfeatures = Xin['featurenames'] if 'featurenames' in Xin.files else np.arange(X.shape[-1]).astype(str)
             if mirrorx:
                 X = realign(X)
-        else: # For fastafiles create onehot encoding 
-            arekmers = False
-            inputnames, inseqs = readinfasta(inputfile)
+            return X, inputfeatures, inputnames
+        else:
+            inputnames, inseqs = readinfasta(file)
             X, inputfeatures = quick_onehot(inseqs)
             if mirrorx:
                 X = realign(X)
-    if os.path.isfile(outputfile):
-        if os.path.splitext(outputfile)[1] == '.npz':
-            Yin = np.load(outputfile, allow_pickle = True)
-            Y, outputnames = Yin['counts'], Yin['names'] # Y should of shape (nexamples, nclasses, l_seq/n_resolution)
+            return X, inputfeatures, inputnames
+
+    def process_output_file(file):
+        """Processes a single output file and returns its data and names."""
+        if os.path.splitext(file)[1] == '.npz':
+            Yin = np.load(file, allow_pickle=True)
+            Y = Yin[output_features]
+            outputnames = Yin[output_names].astype(str)
         else:
-            Yin = np.genfromtxt(outputfile, dtype = str, delimiter = delimiter)
-            Y, outputnames = Yin[:, 1:].astype(float), Yin[:,0]
+            Yin = np.genfromtxt(file, dtype=str, delimiter=delimiter)
+            try:
+                # Attempt to convert all rows (except the first) to float
+                Y = Yin[:, 1:].astype(float)
+                outputnames = Yin[:, 0]
+            except ValueError:
+                # If conversion fails, remove the first row and try again
+                print(f"Warning: Non-numeric values detected in the first row of {file}. Removing it.")
+                Yin = Yin[1:]  # Remove the first row
+                Y = Yin[:, 1:].astype(float)
+                outputnames = Yin[:, 0]
+        return Y, outputnames
+
+    # Process input files
+    if ',' in inputfile:
+        inputfile = inputfile.split(',')
+    if isinstance(inputfile, list):
+        X, inputfeatures, inputnames = [], [], []
+        for file in inputfile:
+            Xi, features, names = process_input_file(file)
+            X.append(Xi)
+            inputfeatures.append(features)
+            inputnames.append(names)
+        comnames = reduce(np.intersect1d, inputnames)
+        X = [Xi[np.isin(names, comnames)] for Xi, names in zip(X, inputnames)]
+        inputnames = comnames
+        if combinex:
+            X = np.concatenate(X, axis=1)
+        inputfeatures = np.concatenate(inputfeatures) if len(inputfeatures) > 1 else inputfeatures[0]
+    else:
+        X, inputfeatures, inputnames = process_input_file(inputfile)
+
+    # Process output files
+    if os.path.isfile(outputfile):
+        Y, outputnames = process_output_file(outputfile)
+        hasoutput = True
+    elif ',' in outputfile:
+        outputfile = outputfile.split(',')
+        Y, outputnames = [], []
+        for file in outputfile:
+            Yi, names = process_output_file(file)
+            Y.append(Yi)
+            outputnames.append(names)
+        comnames = reduce(np.intersect1d, outputnames)
+        Y = [Yi[np.isin(names, comnames)] for Yi, names in zip(Y, outputnames)]
+        outputnames = comnames
         hasoutput = True
     else:
-        if ',' in outputfile:
-            Y, outputnames = [], []
-            for putfile in outputfile.split(','):
-                if os.path.splitext(putfile)[1] == '.npz':
-                    Yin = np.load(putfile, allow_pickle = True)
-                    onames = Yin['names']
-                    sort = np.argsort(onames)
-                    Y.append(Yin['counts'][sort])
-                    outputnames.append(onames[sort])
-                else:
-                    Yin = np.genfromtxt(putfile, dtype = str, delimiter = delimiter)
-                    onames = Yin[:,0]
-                    sort = np.argsort(onames)
-                    Y.append(Yin[:, 1:].astype(float)[sort]) 
-                    outputnames.append(onames[sort])
-                
-            comnames = reduce(np.intersect1d, outputnames)
-            for i, yi in enumerate(Y):
-                Y[i] = yi[np.isin(outputnames[i], comnames)]
-            outputnames = comnames
-            hasoutput = True
-        else:
-            print(outputfile, 'not a file')
-            hasoutput = False
-            Y, outputnames = None, None
-    #eliminate data points with no features
-    if arekmers and combinex:
-        Xmask = np.sum(X*X, axis = 1) > 0
-        X, inputnames = X[Xmask], inputnames[Xmask]
-    
-    
+        print(f"{outputfile} is not a valid file.")
+        Y, outputnames, hasoutput = None, None, False
+
+    # Align input and output data
     sortx = np.argsort(inputnames)
+    inputnames = np.array(inputnames)[sortx]
     if hasoutput:
         sortx = sortx[np.isin(np.sort(inputnames), outputnames)]
         sorty = np.argsort(outputnames)[np.isin(np.sort(outputnames), inputnames)]
-        
-    if combinex:
-        X, inputnames = X[sortx], inputnames[sortx]
-    else:
-        X, inputnames = [x[sortx] for x in X], inputnames[sortx]
-    if hasoutput:
+        X = X[sortx] if combinex else [Xi[sortx] for Xi in X]
+        Y = Y[sorty] if isinstance(Y, np.ndarray) else [Yi[sorty] for Yi in Y]
         outputnames = outputnames[sorty]
-        if isinstance(Y, list):
-            Y = [y[sorty] for y in Y]
-        else:
-            Y = Y[sorty]
-    
+    else:
+        X = X[sortx] if combinex else [Xi[sortx] for Xi in X]
+
+    # Extract header if needed
+    header = None
     if return_header and hasoutput:
         if isinstance(Y, list):
             header = []
-            for p, putfile in enumerate(outputfile.split(',')):
-                if os.path.splitext(putfile)[1] == '.npz':
-                    Yin = np.load(putfile, allow_pickle = True)
-                    if 'celltypes' in Yin.files:
-                        head = Yin['celltypes']
-                    else:
-                        head = ['C'+str(i) for i in range(np.shape(Y[p])[1])]
+            for file, Yi in zip(outputfile, Y):
+                if os.path.splitext(file)[1] == '.npz':
+                    Yin = np.load(file, allow_pickle=True)
+                    head = Yin['celltypes'] if 'celltypes' in Yin.files else [f"C{i}" for i in range(Yi.shape[1])]
                 else:
-                    head = open(putfile, 'r').readline()
-                    if '#' in head:
-                        head = head.strip('#').strip().split(delimiter)
-                    else:
-                        head = ['C'+str(i) for i in range(np.shape(Y[p])[1])]
-                header.append(np.array(head))
-                    
+                    head = open(file, 'r').readline().strip('#').strip().split(delimiter)
+                header.append(np.array(head)[-Yi.shape[-1]:])
         else:
             if os.path.splitext(outputfile)[1] == '.npz':
-                if 'celltypes' in Yin.files:
-                    header = Yin['celltypes']
-                else:
-                    header = ['C'+str(i) for i in range(np.shape(Y)[1])]
+                Yin = np.load(outputfile, allow_pickle=True)
+                header = Yin['celltypes'] if 'celltypes' in Yin.files else [f"C{i}" for i in range(Y.shape[1])]
             else:
-                header = open(outputfile, 'r').readline()
-                if '#' in header:
-                    header = header.strip('#').strip().split(delimiter)
-                else:
-                    header = ['C'+str(i) for i in range(np.shape(Y)[1])]
-            header = np.array(header)
-    else:
-        header  = None
-    
-    if not arekmers:
-        if combinex:
-            X = np.transpose(X, axes = [0,2,1])
-        else:
-            X = [np.transpose(x, axes = [0,2,1]) for x in X]
-    if combinex:
-        print('Input shapes X', np.shape(X))
-    else:
-        print('Input shapes X', [np.shape(x) for x in X])
-            
-    if isinstance(Y, list):
-        print('Output shapes Y', [np.shape(y) for y in Y])
-    else:
-        print('Output shapes Y', np.shape(Y))
-    
+                header = open(outputfile, 'r').readline().strip('#').strip().split(delimiter)
+            header = np.array(header)[-Y.shape[-1]:]
+
+    # Transpose input data if not k-mers
+    if not isinstance(X, list) and len(X.shape) > 2:
+        X = np.transpose(X, axes=[0, 2, 1])
+    elif isinstance(X, list):
+        X = [np.transpose(Xi, axes=[0, 2, 1]) for Xi in X]
+
+    # Print shapes for debugging
+    print(f"Input shapes X: {np.shape(X) if combinex else [np.shape(Xi) for Xi in X]}")
+    if hasoutput:
+        print(f"Output shapes Y: {np.shape(Y) if isinstance(Y, np.ndarray) else [np.shape(Yi) for Yi in Y]}")
+
     return X, Y, inputnames, inputfeatures, header
 
 

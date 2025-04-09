@@ -457,7 +457,35 @@ def forward(self, x, xadd = None, mask = None, mask_value = 0, location = 'None'
 
 # highly flexible Convolutional neural network architecture
 class cnn(nn.Module):
-    def __init__(self, loss_function = 'MSE', validation_loss = None, loss_weights = 1, val_loss_weights = 1, n_features = None, reverse_complement = False, complement_pool = 'max', n_classes = 1, l_seqs = None, num_kernels = 0, kernel_bias = True, fixed_kernels = None, motif_cutoff = None, l_kernels = 7, nlconv = False, nlconv_position_wise = False, nlconv_fclayer = None, nlconv_explicit = False, nlconv_nfc = 5, kernel_function = 'GELU', warm_start = False, hot_start = False, hot_alpha=0.01, kernel_thresholding = 0, max_pooling = True, mean_pooling = False, weighted_pooling = False, pooling_size = None, pooling_steps = None, net_function = 'GELU', dilated_convolutions = 0, strides = 1, conv_increase = 1., dilations = 1, l_dilkernels = None, dilmax_pooling = 0, dilmean_pooling = 0, dilweighted_pooling= 0, dilpooling_steps = 1, dilpooling_residual = 1, dilresidual_entire = False, dilresidual_concat = False, embedding_convs = 0, n_transformer = 0, n_attention = 0, n_interpolated_conv = 0, n_hyenaconv = 0, n_distattention = 0, dim_distattention=2.5, dim_embattention = None, attentionmax_pooling = 0, attentionweighted_pooling = 0, attentionconv_pooling = 1, sum_attention = False, transformer_convolutions = 0, trdilations = 1, trstrides = 1, l_trkernels = None, trconv_dim = None, trmax_pooling = 0, trmean_pooling = 0, trweighted_pooling = 0, trpooling_residual = 1, trpooling_steps = 1, trresidual_entire = False, gapped_convs = None, gapconv_residual = True, gapconv_pooling = False,  final_convolutions = 0, final_conv_dim = None, l_finalkernels = 4, finalmax_pooling = 0, finalmean_pooling = 0, finalweighted_pooling =1, finalstrides = 1, finaldilations = 1, fclayer_size = None, nfc_layers = 0, nfc_residuals = 0, fc_function = None, layer_widening = 1.1, interaction_layer = False, neuralnetout = 0, dropout = 0., conv_dropout=0., attention_dropout = 0., fc_dropout = 0., batch_norm = False, conv_batch_norm = False, attention_batch_norm = False, fc_batch_norm = False, l1_kernel = 0, l2reg_last = 0., l1reg_last = 0., shift_sequence = None, random_shift = False, reverse_sign = False, smooth_onehot = 0, epochs = 1000, lr = 1e-2, kernel_lr = None, adjust_lr = 'F', batchsize = None, patience = 25, outclass = 'Linear', outname = None, optimizer = 'Adam', optim_params = None, optim_weight_decay = None, verbose = True, checkval = True, init_epochs = 0, writeloss = True, write_steps = 1, device = 'cpu', load_previous = True, init_adjust = False, seed = 101010, keepmodel = False, generate_paramfile = True, add_outname = True, restart = False, **kwargs):
+    def __init__(self, loss_function = 'MSE', validation_loss = None, loss_weights = 1, 
+    val_loss_weights = 1, n_features = None, reverse_complement = False, complement_pool = 'max',
+    n_classes = 1, l_seqs = None, num_kernels = 0, kernel_bias = True, 
+    fixed_kernels = None, motif_cutoff = None, l_kernels = 7, 
+    nlconv = False, nlconv_position_wise = False, nlconv_fclayer = None, nlconv_explicit = False, nlconv_nfc = 5, 
+    kernel_function = 'GELU', warm_start = False, hot_start = False, hot_alpha=0.01, 
+    kernel_thresholding = 0, max_pooling = True, mean_pooling = False, weighted_pooling = False, 
+    pooling_size = None, pooling_steps = None, net_function = 'GELU', 
+    dilated_convolutions = 0, strides = 1, conv_increase = 1., dilations = 1, l_dilkernels = None, 
+    dilmax_pooling = 0, dilmean_pooling = 0, dilweighted_pooling= 0, dilpooling_steps = 1, 
+    dilpooling_residual = 1, dilresidual_entire = False, dilresidual_concat = False, embedding_convs = 0,
+    n_transformer = 0, n_attention = 0, n_interpolated_conv = 0, n_hyenaconv = 0, n_distattention = 0, 
+    dim_distattention=2.5, dim_embattention = None, attentionmax_pooling = 0, attentionweighted_pooling = 0,
+    attentionconv_pooling = 1, sum_attention = False, transformer_convolutions = 0, trdilations = 1, 
+    trstrides = 1, l_trkernels = None, trconv_dim = None, trmax_pooling = 0, trmean_pooling = 0, 
+    trweighted_pooling = 0, trpooling_residual = 1, trpooling_steps = 1, trresidual_entire = False, 
+    gapped_convs = None, gapconv_residual = True, gapconv_pooling = False,  final_convolutions = 0, 
+    final_conv_dim = None, l_finalkernels = 4, finalmax_pooling = 0, finalmean_pooling = 0, 
+    finalweighted_pooling =1, finalstrides = 1, finaldilations = 1, fclayer_size = None, nfc_layers = 0,
+     nfc_residuals = 0, fc_function = None, layer_widening = 1.1, interaction_layer = False, 
+     neuralnetout = 0, dropout = 0., conv_dropout=0., attention_dropout = 0., fc_dropout = 0.,
+      batch_norm = False, conv_batch_norm = False, attention_batch_norm = False, fc_batch_norm = False, 
+      l1_kernel = 0, l2reg_last = 0., l1reg_last = 0., shift_sequence = None, random_shift = False, 
+      reverse_sign = False, smooth_onehot = 0, epochs = 1000, lr = 1e-2, kernel_lr = None, 
+      adjust_lr = 'F', batchsize = None, patience = 25, outclass = 'Linear', outname = None, 
+      optimizer = 'Adam', optim_params = None, optim_weight_decay = None, verbose = True, 
+      checkval = True, init_epochs = 0, writeloss = True, write_steps = 1, device = 'cpu', 
+      load_previous = True, init_adjust = False, seed = 101010, keepmodel = False, 
+      generate_paramfile = True, add_outname = True, restart = False, **kwargs):
         
         super(cnn, self).__init__()
         

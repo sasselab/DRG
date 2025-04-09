@@ -30,46 +30,80 @@ import time
 
 
 
-def create_sets(n_samples, folds, fold, seed = 1010, Yclass = None, genenames = None):
-    '''
-    Create random train, test and validation sets using permutations
-    Samples can be split into different classes: each set will have same fraction of each class
-    '''
-    
+def create_sets(n_samples, folds, fold, seed=1010, Yclass=None, genenames=None):
+    """
+    Create random train, test, and validation sets using permutations.
+    Samples can be split into different classes, ensuring each set has the same fraction of each class.
+
+    Parameters:
+    ----------
+    n_samples : int
+        Total number of samples.
+    folds : int or str
+        Number of folds for cross-validation or a file path containing predefined sets.
+    fold : int
+        The fold index to use for testing.
+    seed : int, optional
+        Random seed for reproducibility (default is 1010).
+    Yclass : np.ndarray, optional
+        Class labels for the samples. If None, all samples are treated as a single class.
+    genenames : np.ndarray, optional
+        Names of the samples, required if `folds` is a file.
+
+    Returns:
+    -------
+    trainset : np.ndarray
+        Indices of the training set.
+    testset : np.ndarray
+        Indices of the test set.
+    valset : np.ndarray
+        Indices of the validation set.
+    """
     if isinstance(folds, int):
+        # Handle random splitting with cross-validation
         if Yclass is None:
-            Yclass = np.ones(n_samples)
+            Yclass = np.ones(n_samples)  # Treat all samples as a single class
+
         np.random.seed(seed)
         permut = np.random.permutation(n_samples)
         classes = np.unique(Yclass)
-        testset, valset, trainset = [],[],[]
-        valfold = fold -1
-        if valfold == -1:
-            valfold = folds -1
+        testset, valset = [], []
+
+        valfold = (fold - 1) % folds  # Validation fold index
+
         for cla in classes:
             inclass = Yclass[permut] == cla
             totinclass = np.sum(inclass)
-            modulos = totinclass%folds
-            addedstart = fold * int(fold<modulos)
-            startfold = int((fold/folds)*np.sum(Yclass== cla)) +addedstart
-            endfold = int(((fold+1)/folds)*np.sum(Yclass== cla))+ addedstart + int(fold+1 < modulos)
-            valaddedstart = valfold * int(valfold<modulos)
-            valstartfold = int((valfold/folds)*np.sum(Yclass== cla)) +valaddedstart
-            valendfold = int(((valfold+1)/folds)*np.sum(Yclass== cla))+ valaddedstart + int(valfold+1 < modulos)
-            testset.append(permut[inclass][startfold:endfold])
-            valset.append(permut[inclass][valstartfold:valendfold])
-        testset, valset = np.concatenate(testset), np.concatenate(valset)
-        trainset = np.delete(np.arange(n_samples, dtype = int), np.append(testset, valset))
-    else:
-        lines = open(folds, 'r').readlines()
-        sets = []
-        for l, line in enumerate(lines):
-            if line[0] != '#':
-                line = line.strip().split()
-                sets.append(np.where(np.isin(genenames,line))[0])
-        testset = sets[(fold+1)%len(sets)]
+
+            # Calculate start and end indices for test and validation sets
+            test_start = (fold * totinclass) // folds
+            test_end = ((fold + 1) * totinclass) // folds
+            val_start = (valfold * totinclass) // folds
+            val_end = ((valfold + 1) * totinclass) // folds
+
+            testset.append(permut[inclass][test_start:test_end])
+            valset.append(permut[inclass][val_start:val_end])
+
+        testset = np.concatenate(testset)
+        valset = np.concatenate(valset)
+        trainset = np.delete(np.arange(n_samples), np.append(testset, valset))
+
+    elif os.path.isfile(folds):
+        # Handle predefined sets from a file
+        if genenames is None:
+            raise ValueError("genenames must be provided when folds is a file.")
+
+        with open(folds, 'r') as f:
+            lines = [line.strip() for line in f if not line.startswith('#')]
+
+        sets = [np.where(np.isin(genenames, line.split()))[0] for line in lines]
+        testset = sets[(fold + 1) % len(sets)]
         valset = sets[fold]
-        trainset = np.delete(np.arange(len(genenames), dtype = int),np.append(testset,valset))
+        trainset = np.delete(np.arange(len(genenames)), np.append(testset, valset))
+
+    else:
+        raise ValueError("folds must be an integer or a valid file path.")
+
     return trainset, testset, valset
 
 
@@ -221,7 +255,23 @@ class hook_grads():
             self.grads[name] = grad
         return hook
 
-def fit_model(model, X, Y, XYval = None, sample_weights = None, loss_function = 'MSE', validation_loss = None, loss_weights = 1, val_loss_weights = 1, batchsize = None, device = 'cpu', optimizer = 'Adam', optim_params = None, optim_weight_decay = None , verbose = True, lr = 0.001, kernel_lr = None, hot_start = False, hot_alpha = 0.01, warm_start = False, outname = 'Fitmodel', adjust_lr = 'F', patience = 25, init_adjust = True, reduce_lr_after = 1, keepmodel = False, load_previous = True, write_steps = 1, checkval = True, writeloss = True, init_epochs = 250, epochs = 1000, l1reg_last = 0, l2reg_last = 0, l1_kernel= 0, reverse_sign = False, shift_back = None, random_shift = False, smooth_onehot = 0, multiple_input = False, restart = False, masks = None, nmasks = None, augment_representation = None, aug_kernel_size = None, aug_conv_layers = 1, aug_loss_masked = True, aug_loss= None, aug_loss_mix = None, aug_lr = None, warmup_function = 'Exp', warm_up_lr_factor = 4., warm_up_epochs = 7, sequence_warmup = False, min_sequence_warmup=200, sequence_warmup_start = 1, sequence_warmup_factor = 2., sequence_warmup_location='c', trainvariability_cut = 0.3, trainvariability_cutn = 25, valtrain_ratio = 0., finetuning = True, finetuning_patience = 3, finetuning_rounds = 5, finetuning_rate = 0.2, **kwargs):
+def fit_model(model, X, Y, XYval = None, sample_weights = None, loss_function = 'MSE', 
+              validation_loss = None, loss_weights = 1, val_loss_weights = 1, batchsize = None, 
+              device = 'cpu', optimizer = 'Adam', optim_params = None, optim_weight_decay = None, 
+              verbose = True, lr = 0.001, kernel_lr = None, hot_start = False, hot_alpha = 0.01, 
+              warm_start = False, outname = 'Fitmodel', adjust_lr = 'F', patience = 25, 
+              init_adjust = True, reduce_lr_after = 1, keepmodel = False, load_previous = True, 
+              write_steps = 1, checkval = True, writeloss = True, init_epochs = 250, epochs = 1000, 
+              l1reg_last = 0, l2reg_last = 0, l1_kernel= 0, reverse_sign = False, shift_back = None, 
+              random_shift = False, smooth_onehot = 0, multiple_input = False, restart = False, 
+              masks = None, nmasks = None, augment_representation = None, aug_kernel_size = None, 
+              aug_conv_layers = 1, aug_loss_masked = True, aug_loss= None, aug_loss_mix = None, 
+              aug_lr = None, warmup_function = 'Exp', warm_up_lr_factor = 4., warm_up_epochs = 7, 
+              sequence_warmup = False, min_sequence_warmup=200, sequence_warmup_start = 1, 
+              sequence_warmup_factor = 2., sequence_warmup_location='c', 
+              trainvariability_cut = 0.3, trainvariability_cutn = 25, valtrain_ratio = 0., 
+              finetuning = True, finetuning_patience = 3, finetuning_rounds = 5, 
+              finetuning_rate = 0.2, **kwargs):
     
     
     # Default parameters for each optimizer
@@ -1102,81 +1152,151 @@ def excute_epoch(model, dataloader, loss_func, pwm_out, normsize, take_grad, dev
 
 
 # The prediction after training are performed on the cpu
-def batched_predict(model, X, pwm_out = None, mask = None, mask_value = 0, device = 'cpu', batchsize = None, shift_sequence = None, random_shift = True, enable_grad = False, location = 'None'):
+def batched_predict(model, X, pwm_out = None, mask = None, mask_value = 0, 
+                    device = 'cpu', batchsize = None, shift_sequence = None, 
+                    random_shift = True, enable_grad = False, location = 'None'):
+    """
+    Function to predict with a trained model. The model is set to evaluation mode and the input is moved to the device.
+    The function uses no_grad to avoid computation of gradient and graph. If enable_grad is set to True, the function will compute the gradient of the input.
+    The function will return the prediction of the model.
+    Parameters
+    ----------
+    model : nn.Module
+        The trained model.
+    X : torch.Tensor or numpy.ndarray
+        The input tensor.
+    pwm_out : torch.Tensor
+        The additional input tensor, with precomputed pwm activations
+    mask : (int, or list of int)
+        The mask indexes define the kernel in the first layer whose activations should be set to mask_value
+    mask_value : float
+        The value to set the activations to.
+    device : str    
+        The device to move the model and input to.
+    batchsize : int
+        The batch size to use for prediction. If None, the function will use the default batch size of the model.
+    shift_sequence : int or list of int
+        Whether the sequence was shifted during training
+        If random_shift is True, we just add padding to account for this.
+        If random_shift is False, we create all possible shifts and average predictions
+    random_shift : bool
+        Whether to pad or average over shifts.
+    enable_grad : bool
+        Whether to enable computation of the gradient of the input.
+    location : str
+        The location determines pre-defined locations of outputs from layers in the forwards function.
+        These outputs can be used as embeddings for the input sequence.
+    Returns
+    -------
+    predout : numpy.ndarray or torch.Tensor
+        The prediction of the model.
+        Or the embedings if location is not None.
+        returns torch.Tensor if enable_grad is True, else numpy.ndarray
+    """
+    
+    # If shift sequence was used during training, we need to use padding
     if shift_sequence is not None:
         if isinstance(shift_sequence, int):
             if shift_sequence > 0:
+                # if random_shift then we just pad with max number of shifts
                 if not random_shift:
+                    # else we pad with all the shifts and average over them
                     shift_sequence = np.arange(1,shift_sequence+1, dtype = int)
             else:
                 shift_sequence = None
+    # set model to evaluation mode
     model.eval()
     if device is None:
         device = model.device
     model.to(device)
+    
     # Use no_grad to avoid computation of gradient and graph
+    # Use enable grad for computation of gradient of input
     if enable_grad:
         _grad = torch.enable_grad()
     else:
         _grad = torch.no_grad()
     
     with _grad:
+        # if X is a list, then we need to convert it to a tensor
         islist = False
         if isinstance(X, list):
             islist = True
-            X = [torch.Tensor(x) for x in X]
+            if not isinstance(X[0], torch.Tensor):
+                X = [torch.Tensor(x) for x in X]
             dsize = X[0].size(dim = 0)
         else:
-            X = torch.Tensor(X)
+            if not isinstance(X, torch.Tensor):
+                X = torch.Tensor(X)
             dsize = X.size(dim = 0)
-        if batchsize is not None:
-            predout = []
-            for i in range(0, int(dsize/batchsize)+int(dsize%batchsize != 0)):
-                if pwm_out is not None:
-                    pwm_outin = pwm_out[i*batchsize:(i+1)*batchsize]
-                    if shift_sequence is not None:
-                        pwm_outin = shift_sequences(pwm_outin, shift_sequence, just_pad = random_shift)
-                    pwm_outin = pwm_outin.to(device)
-                else:
-                    pwm_outin = None
-                if islist:
-                    xin = [x[i*batchsize:(i+1)*batchsize] for x in X]
-                    xsize = xin[0].size(dim = 0)
-                    if shift_sequence is not None:
-                        xin = [shift_sequences(x, shift_sequence, just_pad = random_shift) for x in xin]
-                    xin = [x.to(device) for x in xin]
-                
-                else:
-                    xin = X[i*batchsize:(i+1)*batchsize]
-                    xsize = xin.size(dim = 0)
-                    if shift_sequence is not None:
-                        xin = shift_sequences(xin, shift_sequence, just_pad = random_shift)
-                    xin = xin.to(device)
-                fpred = model.forward(xin, xadd = pwm_outin, mask = mask,mask_value = mask_value, location = location)
-                if isinstance(fpred, list):
-                    fpred = torch.cat(fpred, axis = 1)
-                if not enable_grad:
-                    fpred = fpred.detach().cpu().numpy()
-                if shift_sequence is not None:
-                    fpred = fpred.reshape(-1,xsize,np.shape(fpred)[-1]).mean(axis =0)
-                predout.append(fpred)
-            if enable_grad:
-                predout = torch.cat(predout, axis = 0)
-            else:   
-                predout = np.concatenate(predout, axis = 0)
-            
-        else:
-            if islist:
-                X = [x.to(device) for x in X]
+        
+        if pwm_out is not None:
+            if isinstance(pwm_out, list):
+                pwm_out = [torch.Tensor(x) for x in pwm_out]
+                psize = pwm_out[0].size(dim = 0)
             else:
-                X = X.to(device)
-            predout = model.forward(X, xadd = pwm_out, mask = mask, mask_value = mask_value, location = location)
-            if isinstance(predout, list):
-                predout = torch.cat(predout, axis = 1)
-            if not enable_grad:
-                predout = predout.detach().cpu().numpy()
+                pwm_out = torch.Tensor(pwm_out)
+                psize = pwm_out.size(dim = 0)
+            if psize != dsize:
+                raise ValueError('The size of the input and the pwm_out must be the same.')
+                sys.exit()
+            if pwm_out.size(dim = -1) != X.size(dim = -1):
+                raise ValueError('The size of the input and the pwm_out must be the same.')
+                sys.exit()
+            
+
+        if batchsize is None:
+            batchsize = dsize
+        if batchsize > dsize:
+            batchsize = dsize
+  
+  
+        predout = []
+        for i in range(0, dsize, batchsize):
+            # prepare precomputed pwm activations input for model predictions
+            if pwm_out is not None:
+                pwm_outin = pwm_out[i: i+batchsize]
+                if shift_sequence is not None:
+                    pwm_outin = shift_sequences(pwm_outin, shift_sequence, just_pad = random_shift)
+                pwm_outin = pwm_outin.to(device)
+            else:
+                pwm_outin = None
+            
+            # prepare batch for model predictions and send to devide
+            if islist:
+                xin = [x[i:i+batchsize] for x in X]
+                xsize = xin[0].size(dim = 0)
+                if shift_sequence is not None:
+                    xin = [shift_sequences(x, shift_sequence, just_pad = random_shift) for x in xin]
+                xin = [x.to(device) for x in xin]
+            
+            else:
+                xin = X[i:i+batchsize]
+                xsize = xin.size(dim = 0)
+                if shift_sequence is not None:
+                    xin = shift_sequences(xin, shift_sequence, just_pad = random_shift)
+                xin = xin.to(device)
+
+            # model the input with the model
+            fpred = model.forward(xin, xadd = pwm_outin, mask = mask,mask_value = mask_value, location = location)
+            
+            # if model returns list for multiple data matrices, just concatenate them
+            if isinstance(fpred, list):
+                fpred = torch.cat(fpred, axis = 1)
+            # take them mean over all shifts 
+            # if random_shift is True, we just pad with max number of shifts
             if shift_sequence is not None:
-                # combine predictions for each gene across different shifts
-                predout = predout.reshape(-1,dsize,fpred.size(dim=-1)).mean(dim =0)
+                fpred = fpred.reshape(-1,xsize,fpred.size(-1)).mean(dim=0)
+            # if not used for gradient of input, then make numpy array
+            if not enable_grad:
+                fpred = fpred.detach().cpu().numpy()
+            
+            predout.append(fpred)
+
+        if enable_grad:
+            predout = torch.cat(predout, axis = 0)
+        else:   
+            predout = np.concatenate(predout, axis = 0)
+            
     return predout
 

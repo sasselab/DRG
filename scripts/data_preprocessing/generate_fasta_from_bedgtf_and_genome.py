@@ -158,7 +158,8 @@ if __name__ == '__main__':
                 with open(f"{outname}_pos_info.pkl", "wb") as file:
                     pickle.dump(pos_info, file)
 
-            
+        else:
+            print(chrfold.rstrip('/')+'/'+uchr+'.fa.gz', 'not found')
             
         
 

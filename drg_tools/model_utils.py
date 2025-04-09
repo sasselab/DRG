@@ -1,5 +1,5 @@
 
-
+from .io_utils import check
 from torch.utils.data import TensorDataset, DataLoader, Dataset
 # model_utils.py 
 '''
@@ -12,9 +12,85 @@ import torch
 import torch.nn as nn
 
 
+def process_cnn_arguments(arguments, replace_arguments = None, params = None, split_entry_string = '+', split_key_string = '='):
+    """
+    Processes CNN arguments from command-line arguments 
+    or from file containing arguments
+    for model initialization.
+
+    Parameters:
+    -----------
+        arguments (list, str, or path)
+            List of command-line arguments or path to a file containing arguments.
+    Returns:
+    -------
+        params (dict): Dictionary of parameters for the CNN model.
+    """
+    if params is None:
+        params = {}
+    
+    if split_entry_string in arguments:
+        parameters = arguments.split(split_entry_string)
+    
+    elif os.path.isfile(arguments):
+        obj = open(arguments, 'r').readlines()
+        parameters = []
+        for line in obj:
+            if line[0] != '_' and line[:7] != 'outname':
+                parameters.append(line.strip().replace(' : ', split_key_string))
+        
+        if replace_arguments is not None:
+                
+            if split_key_string in replace_arguments: 
+                if split_entry_string in replace_arguments:
+                    replace_arguments = replace_arguments.split(split_entry_string)
+                else:
+                    replace_arguments = [replace_arguments]
+                for i, p in enumerate(replace_arguments):
+                    parameters.append(p)
+    elif split_entry_string in arguments:
+        parameters = [arguments]
+    else: 
+        raise ValueError('{arguments} \n' \
+        'Arguments are not in the correct format. Please provide a list of arguments or a path to a file containing arguments.')
+    
+
+    for p in parameters:
+        if split_key_string in p:
+            p = p.split(split_key_string, 1)
+        params[p[0]] = check(p[1])
+
+    return params
+
 
 
 def load_parameters(model, PATH, translate_dict = None, allow_reduction = False, exclude = [], include = False):
+    '''
+    Load the parameters of a model from a given path or a state_dict.
+    The parameters of the model are replaced with the parameters from the loaded state_dict if they are the same.
+    Parameters
+    ----------
+    model : torch.nn.Module
+        The model to load the parameters into.
+    PATH : str or dict
+        The path to the parameters or the state_dict of the model.
+    translate_dict : dict, optional
+        A dictionary that translates the names of the parameters in the loaded state_dict to the names of the parameters in the current model. The default is None.
+    allow_reduction : bool, optional
+        If True, then the parameters in the loaded state_dict can be smaller or larger than the parameters in the current model in dimension 0. The default is False. 
+        Dimension zero is adjusted to the size of the current model.
+    exclude : list, optional
+        A list of layers in the current model that are considered for replacement. The default is [].
+    include : bool, optional
+        include defines if exclude is a list of layers that should be excluded (include = False) or only included (include = True).
+        Generally only replace parameters that can be found in the loaded model's state_dict
+        Either with the name from the current model or with the translated name.
+        If include is False (default): if the name0 of the current model is not given specifically in exclude, it will be considered for replacement.
+        if include is True: only perform this if name0 is specifically in exclude, exclude is the list of layers in the current model that are considered for replacement.
+    Returns
+    -------
+    None.
+    '''
     # if path is a string, then load this path, otherwise if it is the model.state_dict then use it directley 
     if isinstance(PATH, str):
         state_dict = torch.load(PATH, map_location = 'cpu')

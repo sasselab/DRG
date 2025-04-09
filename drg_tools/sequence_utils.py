@@ -74,8 +74,19 @@ def check_addonehot(onehotregion, shapeohvec1, selen):
 
 
 
-def seq_onehot(sequence, nucs = 'ACGT'):
-    ohvec = np.array(list(sequence))[:, None] == nucs
+
+
+def seq_onehot(sequence, nucs = 'ACGT', case_sensitive = False):
+    '''
+    Generates a one-hot encoding of a sequence
+    '''
+    if not case_sensitive:
+        sequence = sequence.upper()
+    if isinstance(sequence, str):
+        sequence = np.array(list(sequence))
+    elif isinstance(sequence, list):
+        sequence = np.array(sequence)
+    ohvec = sequence[:, None] == np.array(list(nucs))
     return ohvec
 
 # generates one-hot encoding by comparing arrays

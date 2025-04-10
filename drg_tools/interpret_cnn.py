@@ -132,38 +132,81 @@ def parameter_importance_score(ypred, y, coef_, inputs):
 
 
 def correct_by_mean(grad, channel_axis=-2):
-    return grad - np.expand_dims(np.mean(grad, axis = channel_axis), channel_axis)
+    '''
+    Corrects the gradient by subtracting the mean of the gradient
+    along the channel axis
+    Parameters
+    ----------
+    grad : np.ndarray, or torch.Tensor
+        Gradient to be corrected
+    channel_axis : int
+        Axis along which the mean is computed
+        This is the channel of the nucleotides
+    Returns 
+    -------
+    grad : np.ndarray, or torch.Tensor
+        Corrected gradient
+    '''
+    if isinstance(grad, torch.Tensor):
+        return grad - torch.mean(grad, dim = channel_axis, keepdim = True)
+    if isinstance(grad, np.ndarray):
+        return grad - np.mean(grad, axis = channel_axis, keepdims = True)  
+    
 
-def ism(x, model, tracks=None, zero_mean_gauge = True):
+def ism(x, model, tracks=None, output = 'ism_attributions', batchsize = None,
+        device = None):
     '''
     Generates attributions via in silico saturated mutagenesis
     
     Parameters
     ----------
-    x : np.ndarray, list of np.ndarray
+    x : np.ndarray, list of np.ndarray, torch.Tensor or list of torch.Tensor
         Can either be one hot encoded sequences of shape = (N_seq, 4, L_seq) or
         list of paired sequences, for example RNA and paired DNA sequences
     model : torch.Module 
         CNN model to make predictions with
     tracks : list of int 
         Indeces for selected tracks
-    zero_mean_gauge : bool
-        If True ISM values will be centered to mean zero for each position
-    
+        None will use all tracks
+        If tracks is list of lists, it will use cnn_average_wrapper to create the average
+        of the tracks in each list
+    output : str
+        'attributions' will return the ISM attributions
+        'ism' will return differences between reference and alternative sequences
+        'predictions' will return the predictions of the model in the same shape
+    batchsize : int 
+        Batch size for the model, if None, tries to use model.batchsize
+        If that doesn't exit, it will use 1
+        
     Returns
     -------
-    ismout : Numpy array
-        Shape = (n_type, N_seqs, tracks, L_seq, channels)?
+    ismout : numpy.ndarray
+        If x is a list of n_type arrays or tensors
+        the output will be of shape = (n_type, N_seqs, tracks, L_seq, channels)
+        If x is a single array or tensor, the output will be of shape = (N_seqs, tracks, L_seq, channels)
+
     '''
     
-    
     if tracks is not None:
+        if isinstance(tracks, (np.integer,int)):
+            tracks = [tracks]
+        # If the tracks are given as list of lists, the wrapper will return averages
+        # of the tracks in each list
+        # If the tracks are given as list of numpy arrays, the wrapper will return averages
         if isinstance(tracks[0], list) or isinstance(tracks[0], np.ndarray):
             model = cnn_average_wrapper(model, tracks)
             tracks = [i for i in range(len(tracks))]
+    
+    if isinstance(x, list):
+        if not isinstance(x[0], torch.Tensor):
+            x = [torch.Tensor(xi) for xi in x]
+    else:
+        if not isinstance(x, torch.Tensor):
+           x = torch.Tensor(x)
+
     # Predict values for original sequences, 
-    # predict() returns numpy arrays and acts with torch.no_grad
-    reference_pred = model.predict(x)
+    # model.predict() returns numpy arrays and acts with torch.no_grad
+    reference_pred = batched_predict(model, x)
     if isinstance(reference_pred, list):
         reference_pred = np.concatenate(reference_pred, axis = 1)
     
@@ -171,14 +214,25 @@ def ism(x, model, tracks=None, zero_mean_gauge = True):
         tracks = np.arange(np.shape(reference_pred)[1])
     
     reference_pred = reference_pred[..., tracks]
-    
-    # prepare x for usage with torch model
-    
-    if isinstance(x,list):
-        x = [torch.Tensor(xi) for xi in x]
+    if output == 'predictions':
+        offset = reference_pred
     else:
-        x = torch.Tensor(x)
-    
+        offset = np.zeros_like(reference_pred)
+
+    if batchsize is None:
+        if 'batchsize' in model.__dict__:
+            batchsize = model.batchsize
+        else: # This could be slow
+            batchsize = 1
+
+    # chekk if device is None, then use the device of the model
+    if device is None:
+        if 'device' in model.__dict__:
+            device = model.device
+        else:
+            device = 'cpu'
+    model.to(device)
+
     if isinstance(x, list):
         Nin = len(x)
         ismout = []
@@ -201,15 +255,15 @@ def ism(x, model, tracks=None, zero_mean_gauge = True):
                         xin.append(torch.clone(x[k][i].expand([len(isnot[0])] + list(si.size()))))
                     else:
                         xin.append(xalt)
-                altpred = model.predict(xin)
+                altpred = batched_predict(model,xin, device = device)
                 if isinstance(altpred,list):
                     altpred = np.concatenate(altpred,axis =1)
                 altpred = altpred[...,tracks]
                 # assign delta values to locoation of changes base
                 for j in range(len(isnot[0])):
-                    ismout0[i, isnot[0][j], isnot[1][j]] = altpred[j] - reference_pred[i]
+                    ismout0[i, isnot[0][j], isnot[1][j]] = altpred[j] - reference_pred[i] + offset[i]
             ismout.append(np.swapaxes(np.swapaxes(ismout0, 1, -1), -1,-2))
-            if zero_mean_gauge:
+            if 'attributions' in output:
                 ismout[-1] = correct_by_mean(ismout[-1])
     else:
         Nin = 1
@@ -224,16 +278,16 @@ def ism(x, model, tracks=None, zero_mean_gauge = True):
             for j in range(len(isnot[0])):
                 xalt[j,:,isnot[1][j]] = 0
                 xalt[j,isnot[0][j],isnot[1][j]] = 1
-            altpred = model.predict(xalt)
+            altpred = batched_predict(model,xalt, device = device)
             if isinstance(altpred,list):
                 altpred = np.concatenate(altpred,axis =1)
             altpred = altpred[...,tracks]
             for j in range(len(isnot[0])):
-                ismout[i, isnot[0][j], isnot[1][j]] = altpred[j] - reference_pred[i]
+                ismout[i, isnot[0][j], isnot[1][j]] = altpred[j] - reference_pred[i] + offset[i]
         end = time.time()
-        print('ISM time for', x.size(dim = 0), len(tracks),  end-start)
+        print('ISM time for', grad.shape, len(tracks),  end-start)
         ismout = np.swapaxes(np.swapaxes(ismout, 1, -1), -1,-2)
-        if zero_mean_gauge:
+        if 'attributions' in output:
             ismout = correct_by_mean(ismout)
         
     return ismout
@@ -268,48 +322,98 @@ class cnn_average_wrapper(torch.nn.Module):
             npred.append(pred[:,tup].mean(dim = 1,keepdim = True))
         pred = torch.hstack(npred)
         return pred
-        # The prediction after training are performed on the cpu
-    
-    def predict(self, X, device = None, enable_grad = False):
+    # helper function to call batched_predict for wrapper with model.predict()
+    def predict(self, X, device = None, enable_grad = False, batchsize = None, 
+                shift_sequence = None, random_shift = False):
         if device is None:
-            device = self.model.device
-            
-        predout = batched_predict(self, X, device = device, batchsize = self.model.batchsize, shift_sequence = self.model.shift_sequence, random_shift = self.model.random_shift, enable_grad = enable_grad)
+            if hasattr(self.model, 'device'):
+                device = self.model.device
+        if batchsize is None:
+            if hasattr(self.model, 'batchsize'):
+                batchsize = self.model.batchsize
+            else:
+                batchsize = 1
+        if shift_sequence is None:
+            if 'shift_sequence' in self.model.__dict__:
+                shift_sequence = self.model.shift_sequence
+        if random_shift is None:
+            if 'random_shift' in self.model.__dict__:
+                random_shift = self.model.random_shift
+        predout = batched_predict(self, X, device = device, batchsize = batchsize, 
+                                  shift_sequence = shift_sequence, 
+                                  random_shift = random_shift, 
+                                  enable_grad = enable_grad)
         return predout
 
+def only_keep_top_dense(grad, x, top):
+    '''
+    Only keep the top attributions along all tracks
+    with their position
+    Parameters
+    ----------  
+    grad : np.ndarray
+        Attributions for all four bases
+    x : np.ndarray
+        One hot encoded sequence
+    top : int
+        Number of positions to keep with attributions
+        Reverse function will set all other positions to zero because they
+        did not pass the threshold
+    '''
+    ngrashape = list(np.shape(grad))
+    ngrashape[-2] += 1 # add dimension to channel for position
+    ngrashape[-1] = top # reduce length to of attributions to top
+    ngra = np.zeros(ngrashape)
+    for t in range(np.shape(grad)[0]):
+        # looking for largest at reference
+        lcn = np.argsort(-np.amax(np.absolute(grad[t]*x[t]),axis = -2))
+        lcn = np.sort(lcn[:top])
+        # add the position of the top attributions as a fifth channel
+        ngra[t] = np.append(grad[t][...,lcn], lcn[None, :], axis = -2)
+    return ngra
 
-def takegrad(x, model, tracks=None, ensemble = 1, zero_mean_gauge = True, top=None):
+
+def takegrad(x, model, tracks=None, ensemble = 1, output = 'attributions', top=None,
+             device = None):
     '''
     Returns the gradient of the model with respect to the individual bases
     
     Parameters
     ----------
-    x : np.ndarray, list of np.ndarray
+    x : np.ndarray, list of np.ndarray, torch.Tensor or list of torch.Tensor
         Can either be one hot encoded sequences of shape = (N_seq, 4, L_seq) or
         list of paired sequences, for example RNA and paired DNA sequences
     model : torch.Module 
         CNN model to make predictions with
     ensemble : int
-        Sets model to train model to use drop-out as approximation for 
+        If > 1, sets model to train to use drop-out as approximation for 
         different models to get attributions from their ensemble
+        Then averages over attributions from all ensembles to improve them
     tracks : list of int 
         Indeces for selected tracks
-    zero_mean_gauge : bool
-        If True ISM values will be centered to mean zero for each position
+        None will use all tracks
+        If tracks is list of lists, it will use cnn_average_wrapper to create the average
+        of the tracks in each list
+    output : str
+        'attributions' will return the corrected gradient subtracted by the mean
+        'grad' will return the gradient without correction
+        'tism' will return approximated ism values
     top : int 
         Determines how many positions will be kept in final attribution array
         adds another channel to the array with position of the attribution in 
         the full array
     Returns
     -------
-    grad : Numpy array
-        Shape = (n_type, N_seqs, tracks, L_seq, channels)?
-    
-    # TODO 
-        Add tism output
+    grad : numpy.ndarray or torch tesnsor
+        If x is a list of n_type arrays or tensors
+        the output will be of shape = (n_type, N_seqs, tracks, L_seq, channels)
+        If x is a single array or tensor, the output will be of shape = (N_seqs, tracks, L_seq, channels)
+
     '''
-    
+
     if tracks is not None:
+        if isinstance(tracks, (np.integer, int)):
+            tracks = [tracks]
         if isinstance(tracks[0], list) or isinstance(tracks[0], np.ndarray):
             model = cnn_average_wrapper(model, tracks)
             tracks = [i for i in range(len(tracks))]
@@ -322,6 +426,14 @@ def takegrad(x, model, tracks=None, ensemble = 1, zero_mean_gauge = True, top=No
     if ensemble > 1:
         model.train()
     
+    # chekk if device is None, then use the device of the model
+    if device is None:
+        if 'device' in model.__dict__:
+            device = model.device
+        else:
+            device = 'cpu'
+    model.to(device)
+
     grad = []    
     if isinstance(x,list):
         Nin = len(x)
@@ -337,7 +449,7 @@ def takegrad(x, model, tracks=None, ensemble = 1, zero_mean_gauge = True, top=No
             # technical difference
             for e in range(ensemble):
                 # we use predict here because it handles padding and batching
-                pred = model.predict(xi, enable_grad = True)
+                pred = batched_predict(model, xi, enable_grad = True, device=device)
                 if isinstance(pred, list):
                     pred = torch.cat(pred, axis = 1)
                 if tracks is None:
@@ -348,26 +460,22 @@ def takegrad(x, model, tracks=None, ensemble = 1, zero_mean_gauge = True, top=No
                         gr = xij.grad.clone().cpu().numpy()
                         gra[n][e].append(gr)
                         xij.grad.zero_()
-            # Perform corrections to gradient
             for n in range(Nin):
                 # take mean over ensemble
                 gra[n] = np.mean(gra[n],axis = 0)
+            
+            # Perform corrections to gradient
+            for n in range(Nin):
                 # concatenate tracks
                 gra[n] = np.concatenate(gra[n],axis = 0)
-                if zero_mean_gauge:
+                if 'attributions' in output:
                     gra[n] = correct_by_mean(gra[n])
+                if top is None and 'ism' in output:
+                    # subtract the gradient at the reference sequence to approximate ism
+                    gra[n] = gra[n] - np.sum(gra[n]*x[n][i].numpy(), axis = -2, keepdims = True)
                 # Only keep top attributions along all tracks
                 if top is not None:
-                    ngrashape = list(np.shape(gra[n]))
-                    ngrashape[-2] += 1 # add dimension to channel for position
-                    ngrashape[-1] = top # reduce length to of attributions to top
-                    ngra = np.zeros(ngrashape)
-                    for t in range(np.shape(gra[n])[0]):
-                        # looking for largest at reference
-                        lcn = np.argsort(-np.amax(np.absolute(gra[n][t]*x[n][i].numpy()),axis = -2))
-                        lcn = np.sort(lcn[:top])
-                        ngra[t] = np.append(gra[n][t][...,lcn], lcn[None, :], axis = -2)
-                    gra[n] = ngra
+                    gra[n] = only_keep_top_dense(gra[n], x[n].numpy(), top)
                 grad[n].append(gra[n])
                 
         for n in range(Nin):
@@ -381,7 +489,7 @@ def takegrad(x, model, tracks=None, ensemble = 1, zero_mean_gauge = True, top=No
             # need the list of list for ensemble
             gra = [[] for e in range(ensemble)]
             for e in range(ensemble):
-                pred = model.predict(xi, enable_grad = True)
+                pred = batched_predict(model, xi, enable_grad = True, device=device)
                 if isinstance(pred, list):
                     pred = torch.cat(pred, axis = 1)
                 if tracks is None:
@@ -393,24 +501,16 @@ def takegrad(x, model, tracks=None, ensemble = 1, zero_mean_gauge = True, top=No
                     xi.grad.zero_()
             # take mean over ensemble
             gra = np.mean(gra, axis = 0)
-            
-            #TODO
-            # add top feature here
             gra = np.concatenate(gra,axis = 0)
-            if zero_mean_gauge:
+            if 'attributions' in output:
                 gra = correct_by_mean(gra)
+            if top is None and 'ism' in output:
+                # subtract the gradient at the reference sequence to approximate ism
+                gra = gra - np.sum(gra*x[i].numpy(), axis = -2, keepdims = True)
             # Only keep top attributions along all tracks
             if top is not None:
-                ngrashape = list(np.shape(gra))
-                ngrashape[-2] += 1 # add dimension to channel for position
-                ngrashape[-1] = top # reduce length to of attributions to top
-                ngra = np.zeros(ngrashape)
-                for t in range(np.shape(gra)[0]):
-                    # looking for largest at reference
-                    lcn = np.argsort(-np.amax(np.absolute(gra[t]*x[i].numpy()),axis = -2))
-                    lcn = np.sort(lcn[:top])
-                    ngra[t] = np.append(gra[t][...,lcn], lcn[None, :], axis = -2)
-                gra = ngra
+                gra = only_keep_top_dense(gra, x.numpy(), top)
+                
             grad.append(gra)
         grad = np.array(grad)
         end = time.time()
@@ -420,15 +520,18 @@ def takegrad(x, model, tracks=None, ensemble = 1, zero_mean_gauge = True, top=No
 
 
 
-def correct_deeplift(dlvec, freq):
+def correct_deeplift(dlvec, freq, channel_axis = -2):
     '''
     Compute hypothetical attributions from multipliers to a baseline frequency
     '''
     if len(np.shape(freq)) < len(np.shape(dlvec)):
-        freq = np.ones_like(dlvec) * freq[:,None] # for each base, we have to "take step" from the frequency in baseline to 1.
+        freq = np.ones_like(dlvec) * freq[:,None] 
+    # for each base, we have to "take a step" from the frequency in baseline to 1.
+    # For example to get from 0.25 in baseline to 1, we have to take steps of 0.75.
     # This whole procedure is similar to ISM, where we remove the reference base and set it to zero, so take a step of -1, and then go a step of one in the direction of the alternative base. DeepLift returns the regression coefficients, which need to be scaled to the steps that are taken to arrive at the base we're looking at.
-    negmul = np.sum(dlvec * freq, axis = -2)
-    dlvec = dlvec - negmul[...,None,:]
+    negmul = np.sum(dlvec * freq, axis = channel_axis, keepdims = True)
+    # this is the step that we take to get from the baseline to the reference base
+    dlvec = dlvec - negmul
     return dlvec
 
 
@@ -471,14 +574,16 @@ class cnn_multi_deeplift_wrapper(torch.nn.Module):
         return self.model(x)
 
 
-
-# TODO: Use the cnn_multi_deeplift_wrapper to get attributions for multi sequence model
-
-def deeplift(x, model, tracks, baseline = None, batchsize = None, corrected_raw_attributions = True, raw_outputs = True, hypothetical = False, shuffle_function = 'dinucleotide_shuffle', top=None, device = 'cpu'):
+def deeplift(x, model, tracks, baseline = None, batchsize = None, 
+             output = 'attributions', raw_outputs = True, 
+             hypothetical = False, shuffle_function = 'dinucleotide_shuffle', 
+             top=None, device = None):
+    
     '''
-    Uses tangermeme's deepshap to generate attributions for my models
+    Uses tangermeme's deep_lift_shap to generate attributions for single sequence, 
+    multi-sequence, single output, and multi-output models.
     Attributions can come in many different flavors, depending on the given
-    parameters
+    parameters.
     
     Parameters
     ----------
@@ -489,16 +594,21 @@ def deeplift(x, model, tracks, baseline = None, batchsize = None, corrected_raw_
         CNN model to make predictions with
     tracks : list of int 
         Indeces for selected tracks
+        None will use all tracks
+        If tracks is list of lists, it will use cnn_average_wrapper to create the average
+        of the tracks in each list
     baseline: 
         can either be array of random baseline sequences, baseline frequencies,
         or integer. Integer will use tangermemes shuffle or dinucleotide_shuffle
         in tangermeme 
     batchsize : int 
     
-    corrected_raw_attributions : bool
-        multipliers corrected with the baseline frequencies to "hypothetical" attributions
+    output : str
+        'multipliers' will return the multipliers to the baseline frequencies
+        'attributions' will return the attributions corrected with the baseline frequencies to "hypothetical" attributions
     raw_outputs : bool
-        tangermeme function returns multipliers
+        tangermeme function returns multipliers to every baseline
+        Default should be true
     hypothetical:
         tangermeme function returns its hypothetical attributions, which are 
         derived from each baseline sequence individually and then averaged. 
@@ -523,16 +633,26 @@ def deeplift(x, model, tracks, baseline = None, batchsize = None, corrected_raw_
         x = torch.Tensor(x)
         
     model.eval()
+    
+    # chekk if device is None, then use the device of the model
     if device is None:
-        device = model.device
+        if 'device' in model.__dict__:
+            device = model.device
+        else:
+            device = 'cpu'
+    model.to(device)
         
     # batch size will be taken from model
     if batchsize is None:
-        batchsize = model.batchsize
-        if batchsize is None:
-            batchsize = Ni
+        if 'batchsize' in model.__dict__:
+            batchsize = model.batchsize
+        else:
+            batchsize = 1
     
     n_shuffles = None
+    # if baseline is an integer, it will be used as the number of shuffles, and
+    # the shuffle function will be used as the baseline
+    # if baseline is an array, it will be used as the baseline frequencies
     if isinstance(baseline, int):
         n_shuffles = baseline
         if shuffle_function == 'dinucleotide_shuffle':
@@ -541,7 +661,7 @@ def deeplift(x, model, tracks, baseline = None, batchsize = None, corrected_raw_
             baseline = shuffle
         else:
             baseline = shuffle_function
-            
+    # create baseline frequencies if not given        
     elif baseline is None:
         if isinstance(x, list):
             baseline = []
@@ -551,7 +671,9 @@ def deeplift(x, model, tracks, baseline = None, batchsize = None, corrected_raw_
         else:
             basefreq = 1./x.size(-2)
             baseline = torch.ones_like(x[:batchsize])*basefreq
-    
+
+    # make baseline a tensor and check if sizes match the input
+    # if they don't, expand the baseline to the size of the input
     if baseline is not None:
         if isinstance(x, list):
             if isinstance(baseline, list):
@@ -579,23 +701,27 @@ def deeplift(x, model, tracks, baseline = None, batchsize = None, corrected_raw_
                 baseline = baseline.unsqueeze(1)
     
     # when shift_sequence in my model is not None, inputs will be padded
-    if model.shift_sequence is not None:
-        if n_shuffles is not None:
-            if isinstance(x, list):
-                x = [torch.nn.functional.pad(xi, (model.shift_sequence, model.shift_sequence), mode = 'circular') for xi in x]
+    if hasattr(model, 'shift_sequence'):
+        shift_sequence = model.shift_sequence
+        if model.shift_sequence is not None:
+            if n_shuffles is not None: # if dinucleotide shuffle is used, we need to pad with binary values only
+                if isinstance(x, list):
+                    x = [torch.nn.functional.pad(xi, (model.shift_sequence, model.shift_sequence), mode = 'circular') for xi in x]
+                else:
+                    x = torch.nn.functional.pad(x, (model.shift_sequence, model.shift_sequence), mode = 'circular')
             else:
-                x = torch.nn.functional.pad(x, (model.shift_sequence, model.shift_sequence), mode = 'circular')
-        else:
-            if isinstance(x, list):
-                x = [torch.nn.functional.pad(xi, (model.shift_sequence, model.shift_sequence), mode = 'constant', value = 0.25) for xi in x]
-                baseline = [torch.nn.functional.pad(bl, (model.shift_sequence, model.shift_sequence), mode = 'constant', value = 0.25) for bl in baseline]
-            else:
-                x = torch.nn.functional.pad(x, (model.shift_sequence, model.shift_sequence), mode = 'constant', value = 0.25)
-                baseline = torch.nn.functional.pad(baseline, (model.shift_sequence, model.shift_sequence), mode = 'constant', value = 0.25)
-                
-    #predx = model.forward(x.to(model.device)).cpu()
-    #predbase = model.forward(baseline.squeeze(1).to(model.device)).cpu()
+                if isinstance(x, list):
+                    x = [torch.nn.functional.pad(xi, (model.shift_sequence, model.shift_sequence), mode = 'constant', value = 0.25) for xi in x]
+                    baseline = [torch.nn.functional.pad(bl, (model.shift_sequence, model.shift_sequence), mode = 'constant', value = 0.25) for bl in baseline]
+                else:
+                    x = torch.nn.functional.pad(x, (model.shift_sequence, model.shift_sequence), mode = 'constant', value = 0.25)
+                    baseline = torch.nn.functional.pad(baseline, (model.shift_sequence, model.shift_sequence), mode = 'constant', value = 0.25)
+    else:
+        shift_sequence = None
+
     if tracks is not None:
+        if isinstance(tracks, (np.integer, int)):
+            tracks = [tracks]
         if isinstance(tracks[0], list) or isinstance(tracks[0], np.ndarray):
             model = cnn_average_wrapper(model, tracks)
             tracks = [i for i in range(len(tracks))]
@@ -603,6 +729,7 @@ def deeplift(x, model, tracks, baseline = None, batchsize = None, corrected_raw_
     if isinstance(x, list):
         grad = []
         for n in range(Nin):
+            # use this to get deeplift of sequence input n in the input list
             model = cnn_multi_deeplift_wrapper(model, N = Nin, n = n)
             gra = []
             for b in range(0, Ni, batchsize):
@@ -612,36 +739,34 @@ def deeplift(x, model, tracks, baseline = None, batchsize = None, corrected_raw_
                     # otherwise it might think that these are distinct additional
                     # inputs
                     bs = min(batchsize, Ni-b)
-                    #print(baseline[0].shape)
                     if n_shuffles is not None:
                         bl = baseline
                     else:
                         bl = baseline[n][:bs]
+                    # additional inputs given to tangermeme
                     args = [xj[b:b+batchsize] for j, xj in enumerate(x) if j != n] 
                     
-                    gr = deep_lift_shap(model, xi[b:b+bs], args = args, target = tr, references = bl, n_shuffles = n_shuffles, device=device, raw_outputs = raw_outputs, hypothetical = hypothetical, additional_nonlinear_ops = {SoftmaxNorm: _nonlinear, EXPmax : _nonlinear}).cpu().detach().numpy()
+                    gr = deep_lift_shap(model, xi[b:b+bs], args = args, target = tr, 
+                                        references = bl, n_shuffles = n_shuffles, 
+                                        device=device, raw_outputs = raw_outputs, 
+                                        hypothetical = hypothetical, 
+                                        additional_nonlinear_ops = {SoftmaxNorm: _nonlinear, EXPmax : _nonlinear}
+                                        ).cpu().detach().numpy()
                     if raw_outputs:
                         gr = np.mean(gr, axis = 1)
-                    #deltas = (predx[:,[tr]] - predbase[:,[tr]]) - torch.sum(gr * (x.unsqueeze(1)-baseline), dim = (-1,-2))
-                    if model.shift_sequence is not None:
-                        gr = gr[..., model.shift_sequence: np.shape(grad)[-1]-model.shift_sequence]
-                        bl = bl[..., model.shift_sequence: np.shape(baseline)[-1]-model.shift_sequence]
+                    if shift_sequence is not None:
+                        gr = gr[..., shift_sequence: np.shape(grad)[-1]-shift_sequence]
+                        bl = bl[..., shift_sequence: np.shape(baseline)[-1]-shift_sequence]
                     # correct the deeplift output
-                    if not hypothetical and corrected_raw_attributions:
+                    if not hypothetical and output == 'attributions':
+                        # correct the deeplift output
                         gr = correct_deeplift(gr, bl.detach().squeeze(1).numpy())
                     
                     # Only keep top attributions along all tracks
                     if top is not None:
-                        ngrashape = list(np.shape(gr))
-                        ngrashape[-2] += 1 # add dimension to channel for position
-                        ngrashape[-1] = top # reduce length to of attributions to top
-                        ngra = np.zeros(ngrashape)
-                        for i in range(np.shape(gr)[0]):
-                            # looking for largest at reference
-                            lcn = np.argsort(-np.amax(np.absolute(gr[i]*x[i].numpy()),axis = -2))
-                            lcn = np.sort(lcn[:top])
-                            ngra[i] = np.append(gr[i][...,lcn], lcn[None, :], axis = -2)
-                        gr = ngra
+                        # add dimension to channel for position
+                        gr = only_keep_top_dense(gr, x.numpy(), top)
+                    
                     gra.append(gr)
             gra = np.concatenate(gra, axis = 0)
             # return array if shape = (Ndatapoints, Ntracks, Nbase, Lseq)
@@ -650,7 +775,6 @@ def deeplift(x, model, tracks, baseline = None, batchsize = None, corrected_raw_
             grad.append(gra)
         
     else:
-    
         grad = []
         for b in range(0, Ni, batchsize):
             gra = []
@@ -659,28 +783,26 @@ def deeplift(x, model, tracks, baseline = None, batchsize = None, corrected_raw_
                 # additional_nonlinear_ops = {SoftmaxNorm: _nonlinear}
                 bs = min(batchsize, Ni-b)
                 bl = baseline[:bs]
-                gr = deep_lift_shap(model, x[b:b+bs], target = tr, references = bl, n_shuffles = n_shuffles, device=device, raw_outputs = raw_outputs, hypothetical = hypothetical, additional_nonlinear_ops = {SoftmaxNorm: _nonlinear, EXPmax : _nonlinear}).cpu().detach().numpy()
+                gr = deep_lift_shap(model, x[b:b+bs], target = tr, 
+                                    references = bl, n_shuffles = n_shuffles, device=device, 
+                                    raw_outputs = raw_outputs, hypothetical = hypothetical, 
+                                    additional_nonlinear_ops = {SoftmaxNorm: _nonlinear, EXPmax : _nonlinear}
+                                    ).cpu().detach().numpy()
                 if raw_outputs:
                     gr = np.mean(gr, axis = 1)
                 #deltas = (predx[:,[tr]] - predbase[:,[tr]]) - torch.sum(gr * (x.unsqueeze(1)-baseline), dim = (-1,-2))
-                if model.shift_sequence is not None:
-                    gr = gr[..., model.shift_sequence: np.shape(gr)[-1]-model.shift_sequence]
-                    bl = bl[..., model.shift_sequence: np.shape(baseline)[-1]-model.shift_sequence]
+                if shift_sequence is not None:
+                    gr = gr[..., shift_sequence: np.shape(gr)[-1]-shift_sequence]
+                    bl = bl[..., shift_sequence: np.shape(baseline)[-1]-shift_sequence]
                 # correct the deeplift output
-                if not hypothetical and corrected_raw_attributions:
+                if not hypothetical and output == 'attributions':
+                    # correct the deeplift output
                     gr = correct_deeplift(gr, bl.detach().squeeze(1).numpy())
                 # Only keep top attributions along all tracks
                 if top is not None:
-                    ngrashape = list(np.shape(gr))
-                    ngrashape[-2] += 1 # add dimension to channel for position
-                    ngrashape[-1] = top # reduce length to of attributions to top
-                    ngra = np.zeros(ngrashape)
-                    for i in range(np.shape(gr)[0]):
-                        # looking for largest at reference
-                        lcn = np.argsort(-np.amax(np.absolute(gr[i]*x[i].numpy()),axis = -2))
-                        lcn = np.sort(lcn[:top])
-                        ngra[i] = np.append(gr[i][...,lcn], lcn[None, :], axis = -2)
-                    gr = ngra
+                    # add dimension to channel for position
+                    gr = only_keep_top_dense(gr, x.numpy(), top)
+                
                 gra.append(gr)
             grad.append(gra)
         grad = np.concatenate(grad, axis = 0)
@@ -688,7 +810,7 @@ def deeplift(x, model, tracks, baseline = None, batchsize = None, corrected_raw_
         grad = np.transpose(grad, axes = (1,0,2,3))
         # return array if shape = (Ndatapoints, Ntracks, Nbase, Lseq)
     
-    print(np.shape(grad))
+    print(f'DeepLiftSHAP time for {grad.shape}, {len(tracks)} tracks:')
     return grad  
 
 

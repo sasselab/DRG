@@ -1193,6 +1193,9 @@ def batched_predict(model, X, pwm_out = None, mask = None, mask_value = 0,
         Or the embedings if location is not None.
         returns torch.Tensor if enable_grad is True, else numpy.ndarray
     """
+    if shift_sequence is None:
+        if hasattr(model, 'shift_sequence'):
+            shift_sequence = model.shift_sequence
     
     # If shift sequence was used during training, we need to use padding
     if shift_sequence is not None:
@@ -1204,10 +1207,16 @@ def batched_predict(model, X, pwm_out = None, mask = None, mask_value = 0,
                     shift_sequence = np.arange(1,shift_sequence+1, dtype = int)
             else:
                 shift_sequence = None
+    
     # set model to evaluation mode
     model.eval()
+
+    # chekk if device is None, then use the device of the model
     if device is None:
-        device = model.device
+        if 'device' in model.__dict__:
+            device = model.device
+        else:
+            device = 'cpu'
     model.to(device)
     
     # Use no_grad to avoid computation of gradient and graph
@@ -1293,6 +1302,7 @@ def batched_predict(model, X, pwm_out = None, mask = None, mask_value = 0,
             
             predout.append(fpred)
 
+        # concatenate collected batches
         if enable_grad:
             predout = torch.cat(predout, axis = 0)
         else:   

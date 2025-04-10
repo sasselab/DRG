@@ -178,6 +178,12 @@ def plot_seqlogo(att, ax = None, ylabel = None, ylim = None, yticks = None,
         Sequence attributions of shape (N_positions, n_channels)
     '''
     
+    if len(channels) != att.shape[-1]:
+        if len(channels) == att.shape[-2]:
+            att = np.transpose(att, axes = (1,0))
+        else:
+            raise ValueError(f"Shape mismatch: 'channels' length ({len(channels)}) does not match the last two dimensions of 'att' ({att.shape[-1]} or {att.shape[-2]}).")
+
     if ax is None:
         # open a pyplot figure
         fig = plt.figure(figsize = (np.shape(att)[0] * basewidth,
@@ -327,19 +333,100 @@ def _generate_xticks(start, end, n):
     ticklabels = ticklabels[ticks]
     return ticks, ticklabels
     
+def correct_sparse_attributions(att, n_channels = 4, l_seq = None):
+    # Check if the attributions were stored in sparse coordinates and to
+    # original size
+    if np.shape(att)[-1] != n_channels:
+        if (np.shape(att)[-1] != n_channels +1) and (np.shape(att)[-2] == n_channels +1):
+            att = np.swapaxes(att, -1, -2)
+        elif (np.shape(att)[-1] != n_channels +1) and (np.shape(att)[-2] != n_channels +1): 
+            raise Warning(f'The shape of the attributions is {att.shape}, at axis=-1 does not match n_channels {n_channels} +1')
+        if l_seq is None:
+            l_seq = int(np.amax(att[..., -1]))+1
+            print(f'l_seq not given, so working with max position {l_seq}')
+        if att.ndim == 2:
+            nshape = list(np.shape(att))
+            nshape[-1] = nshape[-1] -1
+            nshape[-2] = l_seq
+            natt = np.zeros(nshape)
+            natt[at[:,-1].astype(int)] = at[:,:n_channels]
+        if att.ndim == 3:   
+            nshape = list(np.shape(att))
+            nshape[-1] = nshape[-1] -1
+            nshape[-2] = l_seq
+            natt = np.zeros(nshape)
+            for a, at in enumerate(att):
+                natt[a, at[:,-1].astype(int)] = at[:,:n_channels]
+        if att.ndim == 4:   
+            nshape = list(np.shape(att))
+            nshape[-1] = nshape[-1] -1
+            nshape[-2] = l_seq
+            natt = np.zeros(nshape)
+            for b, bat in enumerate(att):
+                for a, at in enumerate(bat):
+                    natt[b, a, at[:,-1].astype(int)] = at[:,:n_channels]
+        att = natt
+    else: 
+        raise Warning(f'The shape of the attributions is {att.shape}, Axis -1 does not match n_channels {n_channels} +1')
     
+    return att
 
-def plot_attribution_maps(att, seq = None, motifs = None, experiments = None, vlim = None, unit = 0.15, ratio = 10, ylabel = None, xtick_range = None, barplot = None, heatmap = False, center_attribution = False, channels = list('ACGT')):
+def plot_attribution_maps(att, seq = None, motifs = None, experiments = None, 
+                          vlim = None, unit = 0.15, ratio = 10, ylabel = None,
+                          xtick_range = None, barplot = None, heatmap = False, 
+                          center_attribution = False, channels = list('ACGT')):
     '''
-    Plots single or multiple attribution maps above each other. 
+    Plots single or multiple attribution maps above each other.
+    If heatmap is True, heatmaps are added below the attribution. 
     Parameters
     ----------
     att : numpy array 
         Attributions of shape (N_seq, l_seq, channels)
+    seq : numpy array
+        One-hot encoded sequences for each attributions
+        If given, the attributions will be multiplie with this and only show the
+        attributions for the given sequence in attribution map
+        Heatmaps are unaffeced
+    motifs : list of lists wit tuples
+        Locations of motifs in the sequence that will be framed
+    vlim : tuple of floats
+        vmin and vmax for heatmap colors
+    unit : float
+        Size of a single cell in the heatmap
+    ratio : float
+        Number of single cells used for height of attribution map
+    ylabel : str
+        Label on the y-axis
+    xtick_range : tuple of int
+        start and end of the sequence locations in the genome
+    barplot : list of lists or np.arrays
+        For a barplot on the side of the attribution maps that contain predicted or measured values
+    heatmap: bool
+        If true, heatmap with attributions will be added beneath attribution map
+    center_attribution: bool
+        Centers attributions for attribution map.
     exeriments : list of string
         Titles of seqeuence attributions
     '''
-    ism = np.copy(att)
+    #check correct input sizes
+    if len(channels) != att.shape[-1]:
+        if len(channels) == att.shape[-2]:
+            att = np.transpose(att, axes = (0,2,1))
+        else:
+            raise ValueError(f"Shape mismatch: 'channels' length ({len(channels)}) does not match the last two dimensions of 'att' ({att.shape[-1]} or {att.shape[-2]}).")
+    if seq is not None:
+        if seq.shape != att.shape:
+            if seq.shape[-1] == att.shape[-2] and seq.shape[-2] == att.shape[-1]:
+                seq = np.transpose(seq, axes = (0,2,1))
+            else:
+                raise ValueError(f"Shape mismatch: 'channels' length ({len(channels)}) does not match the last two dimensions of 'seq' {seq.shape[-1]}.")
+
+    if heatmap:
+        if isinstance(heatmap, np.ndarray):
+            if heatmap.shape == att.shape:
+                ism = heatmap
+        else:
+            ism = np.copy(att)
     
     if center_attribution:
         att -= (np.mean(att, axis = -1))[...,None]
@@ -371,7 +458,12 @@ def plot_attribution_maps(att, seq = None, motifs = None, experiments = None, vl
     for a, at in enumerate(att):
         ax = fig.add_subplot(len(att)*_heat, 1, 1+(a*_heat))
         ax.set_position([0.1, 0.1+(len(att)-1-(a*_heat))/len(att)/_heat*0.8, 0.8, 0.8*(1/len(att)/_heat)*0.8])
-        axs.append(plot_seqlogo(at, ax = ax, ylabel = experiments[a], labelbottom = (a == len(att)-1) & (~heatmap), bottomticks = (a == len(att)-1)& (~heatmap), ylim = attlim, xticks = xticks, xticklabels = xticklabels))
+        axs.append(plot_seqlogo(at, ax = ax, ylabel = experiments[a], 
+                                labelbottom = (a == len(att)-1) & (~heatmap), 
+                                bottomticks = (a == len(att)-1)& (~heatmap), 
+                                ylim = attlim, xticks = xticks, xticklabels = xticklabels, 
+                                channels=channels
+                                ))
         if motifs is not None:
             _add_frames(at, locations[a], ax, color = motifcolors)
         if heatmap:
@@ -387,7 +479,7 @@ def plot_attribution_maps(att, seq = None, motifs = None, experiments = None, vl
         for b, bp in enumerate(barplot):
             ax = fig.add_subplot(len(barplot), len(barplot), len(barplot) + b)
             ax.set_position([0.9 + 2.5*0.8*(1/len(seq)), 0.1+(len(att)-1-b)/len(att)*0.8, 6*0.8*(1/len(seq)), 0.8*(1/len(att))*0.8])
-            axs.append(_activity_plot(bp, ylim = ylim, ax = ax))
+            axs.append(_bar_plot(bp, ylim = ylim, ax = ax))
 
     return fig
 
@@ -1741,7 +1833,15 @@ def BoxPlotfromBins(X, Y, start=None, end=None, bins=10, axis = 'x', ax = None, 
     if return_fig:
         return fig
 
-def scatterPlot(X, Y, title = None, xlabel = None, ylabel = None, include_fit = False, include_mainvar = False, diagonal = False, plot_axis = None , boxplot_x = None, boxplot_y = None, contour = False, pos_neg_contour = False, color=None, edgecolor = 'silver', cmap = None, sort_color = 'abshigh', color_density = False, vlim = None, sizes = None, alpha = None, lw = None, yticklabels = None, yticks = None, xticklabels = None, xticks = None, grid = False, xlim = None, ylim =None, xscale = None, legend = False, add_text = None, yscale = None, ax = None, dpi = 200):
+def scatterPlot(X, Y, title = None, xlabel = None, ylabel = None, include_fit = False,
+                include_mainvar = False, diagonal = False, plot_axis = None, 
+                boxplot_x = None, boxplot_y = None, contour = False, 
+                pos_neg_contour = False, color=None, edgecolor = 'silver',
+                cmap = None, sort_color = 'abshigh', color_density = False, 
+                vlim = None, sizes = None, alpha = None, lw = None, yticklabels = None, 
+                yticks = None, xticklabels = None, xticks = None, grid = False, 
+                xlim = None, ylim =None, xscale = None, legend = False, add_text = None, 
+                yscale = None, ax = None, dpi = 200):
     '''
     Creates fancy scatterplot with additional features
     
@@ -1907,40 +2007,69 @@ def scatterPlot(X, Y, title = None, xlabel = None, ylabel = None, include_fit = 
     
     if ylim is not None:
         ax.set_ylim(ylim)
-    
-
-def plot_scatter(X, Y, titles = None, xlabel = None, ylabel = None, outname = None, include_fit = True, include_mainvar = False, color=None, color_density = False, size = None, alpha = None, lw = None):
-    """
-    receives list of Xs and Ys and creates grid of scatter plots for them
-    using scatterPlot
-    """
-    
-    n = len(X[0])
-    
-    if n > 100:
-        # max 10X10 plots
-        raise Exception('{0} examples is too large'.format(n))
-    
-    x_col = int(np.sqrt(n))
-    y_row = int(n/x_col) + int(n%x_col!= 0)
-    fig = plt.figure(figsize = (x_col*3.5,y_row*3.5), dpi = 100)
-    
-    for e in range(n):
-        ax = fig.add_subplot(y_row, x_col, e+1)
-        pcorr = pearsonr(X[:,e], Y[:,e])[0]
-        scatterPlot(X[:,e], Y[:,e], c = 'slategrey', alpha = 0.7, sizes = 6, diagonal = True, include_fit=include_fit, include_mainvar=include_mainvar)
-        
-    if xlabel is not None:
-        fig.text(0.5, 0.05-0.25/y_row, xlabel, ha='center')
-    
-    if ylabel is not None:
-        fig.text(0.05-0.2/x_col, 0.5, ylabel, va='center', rotation='vertical')
-    
-    if outname is not None:
-        print('SAVED as', outname)
-        fig.savefig(outname, dpi = 200, bbox_inches = 'tight')
-    else:
+    if return_fig:
         return fig
+
+def plot_scatter(X, Y, ax_size = 3.5, dpi = 100, titles=None, xlabel=None, ylabel=None, outname=None, include_fit=True, include_mainvar=False, **kwargs):
+    """
+    Receives list of Xs and Ys and creates a grid of scatter plots for them using scatterPlot.
+
+    Parameters:
+    ----------
+    X : list
+        list of X values for scatter plots.
+    Y : list
+        list of Y values for scatter plots.
+    ax_size : float
+        Size of each subplot.
+    titles : list, optional
+        Titles for each subplot.
+    xlabel : str, optional
+        Label for the x-axis.
+    ylabel : str, optional
+        Label for the y-axis.
+    outname : str, optional
+        If provided, saves the figure to this file.
+    include_fit : bool, optional
+        Whether to include a linear regression fit in the scatter plots.
+    include_mainvar : bool, optional
+        Whether to include the main variance vector in the scatter plots.
+    **kwargs : dict
+        Additional keyword arguments passed to scatterPlot.
+
+    Returns:
+    -------
+    fig : matplotlib.figure.Figure
+        The created figure if `outname` is not provided.
+    """
+    
+    if len(X) != len(Y):
+        raise ValueError("X and Y must have the same length.")
+    
+    n = len(X)
+
+    if n > 100:
+        raise Exception(f'{n} examples is too large. Maximum allowed is 100.')
+
+    x_col = int(np.sqrt(n))
+    y_row = int(n / x_col) + int(n % x_col != 0)
+    fig = plt.figure(figsize=(x_col * ax_size, y_row * ax_size), dpi=dpi)
+
+    for e in range(n):
+        ax = fig.add_subplot(y_row, x_col, e + 1)
+        pcorr = pearsonr(X[e], Y[e])[0]
+        scatterPlot(X[e], Y[e], ax=ax, include_fit=include_fit, include_mainvar=include_mainvar, **kwargs)
+
+        if titles is not None:
+            ax.set_title(titles[e])
+
+    if xlabel is not None:
+        fig.text(0.5, 0.05 - 0.05 / y_row, xlabel, ha='center')
+
+    if ylabel is not None:
+        fig.text(0.05 - 0.05 / x_col, 0.5, ylabel, va='center', rotation='vertical')
+
+    return fig
 
 
 def plot_lines(y, x = None, xticks = None, xticklabels = None, color = None,

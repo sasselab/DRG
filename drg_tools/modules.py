@@ -976,6 +976,7 @@ class Padded_Conv1d(nn.Module):
             xr = self.conv1d(xr)
             xr = torch.flip(xr, dims = [-1])
             xf = self.conv1d(x)
+            # replace torch.max with a class Amax that contains forward function for deeplift
             if self.complement_pool == 'max':
                 x = torch.amax(torch.cat([xf.unsqueeze(0), xr.unsqueeze(0)], dim = 0), dim = 0)
             elif self.complement_pool == 'mean':

@@ -210,7 +210,8 @@ if __name__ == '__main__':
         if '--significant_genes' in sys.argv:
             siggenes = np.genfromtxt(sys.argv[sys.argv.index('--significant_genes')+1], dtype = str)
             Yclass = np.isin(names, siggenes).astype(int)
-        else:    
+        else:
+            # IF NO SIGNIFICANT DATA POINTS DEFINED, USE CUTOFF TO DEFINE MORE IMPORTANT DATA POINTS    
             cutoff = float(sys.argv[sys.argv.index('--crossvalidation')+3])
             if isinstance(Y, list):
                 Yclass = (np.sum(np.absolute(np.concatenate(Y,axis =1))>=cutoff, axis = 1) > 0).astype(int)
@@ -221,6 +222,7 @@ if __name__ == '__main__':
         cvs = False
         trainset, testset, valset = [], np.arange(len(X), dtype = int), []
     else:
+        raise Warning(f'--crossvalidation not defined in sys.argv, {sys.argv}')
         folds, fold, Yclass = 10, 0, None
         cvs = True
     

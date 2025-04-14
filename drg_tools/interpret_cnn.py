@@ -345,7 +345,7 @@ class cnn_average_wrapper(torch.nn.Module):
                                   enable_grad = enable_grad)
         return predout
 
-def only_keep_top_dense(grad, x, top, dilute_to = None, dilute_type = 'weighted'):
+def only_keep_top_dense(grad, x, top, dilute_to = 5, dilute_type = 'weighted'):
     '''
     Only keep the top attributions along all tracks
     with their position
@@ -554,7 +554,7 @@ def takegrad(x, model, tracks=None, ensemble = 1, output = 'attributions', top=N
                 gra = gra - np.sum(gra*x[i].numpy(), axis = -2, keepdims = True)
             # Only keep top attributions along all tracks
             if top is not None:
-                gra = only_keep_top_dense(gra, xi.squeeze(0).detach().cpu().numpy(), top, dilute_to = 3)
+                gra = only_keep_top_dense(gra, xi.squeeze(0).detach().cpu().numpy(), top)
                 
             grad.append(gra)
         grad = np.array(grad)
@@ -938,7 +938,7 @@ def captum_sequence_attributions(x, model, tracks = None, attribution_method = '
     deltas = [] # Deltas determine if the completeness is fulfilled, i.e. that the sum 
     # multipliers times one-hot encoded sequence is equal to diff predictins.
     # perform deeplift independently for each output track
-    
+    start = time.time()
     for t, tr in enumerate(tracks):
         gr = []
         delt = []
@@ -957,7 +957,7 @@ def captum_sequence_attributions(x, model, tracks = None, attribution_method = '
     # correct the deeplift output
     if output == 'attributions':
         grad = correct_deeplift(grad, basefreq.detach().numpy())
-    print(attribution_method, np.shape(grad))
+    print(attribution_method, np.shape(grad), time.time()-start)
     return grad           
 
 

@@ -57,6 +57,9 @@ if __name__ == '__main__':
     outname += '_'+norm+'motifs'+str(cut)+'_'+str(maxgap)+'_'+str(minsig)
     print(outname)
     if returned:
+        # Estimate the variation of positions without attributions
+        # TODO: Plot absolute attributions against rank
+        # Derive correct function for behavior and replace
         mask = np.repeat(np.sum(np.abs(values),axis=-1)[...,None],4, axis =-1) == 0
         stdmask = np.sqrt(np.mean(np.ma.masked_array(values, mask)**2, axis = (-1,-2)))
         fvalues = np.copy(values)

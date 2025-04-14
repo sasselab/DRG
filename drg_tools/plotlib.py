@@ -1523,17 +1523,19 @@ def vulcano(fc, pv, figname = None, logfc = False, logpv = False, fccutoff=None,
 
 
 
-def plotHist(x, y = None, figsize = (3.5, 3.5), dpi = 150,
-            xcolor='navy', add_yaxis = False, add_median = False,
-              xalpha= 0.5,
+def plotHist(x, y = None, figsize = (3.5, 3.5), dpi = 150, 
+             xcolor='navy', add_yaxis = False, add_median = False, xalpha= 0.5,
              ycolor = 'indigo', yalpha = 0.5, addcumulative = False, 
              bins = None, xlabel = None, title = None, logx = False, 
-             logy = False, logdata = False):
+             logy = False, logdata = False, ax = None):
     '''
     Generates figure with histogram
     '''
-    fig = plt.figure(figsize = figsize, dpi = dpi)
-    axp = fig.add_subplot(111)
+    if ax is None:
+        fig = plt.figure(figsize = figsize, dpi = dpi)
+        axp = fig.add_subplot(111)
+    else:
+        axp = ax
     axp.spines['top'].set_visible(False)
     axp.spines['right'].set_visible(False)
     

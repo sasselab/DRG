@@ -589,7 +589,7 @@ def isint(x):
         return False
 
 # check if string can be integer or float
-def numbertype(inbool):
+def numbertype(value):
     # Check if the value is a number (integer or float)
     try:
         return int(value)

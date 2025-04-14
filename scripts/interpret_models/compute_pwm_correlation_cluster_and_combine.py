@@ -6,74 +6,12 @@ from sklearn.cluster import AgglomerativeClustering
 import argparse
  
 from drg_tools.io_utils import readin_motif_files, write_meme_file
-from drg_tools.motif_analysis import pfm2iupac, combine_pwms, align_compute_similarity_motifs, torch_compute_similarity_motifs, assign_leftout_to_cluster
+from drg_tools.motif_analysis import pfm2iupac, combine_pwms, torch_compute_similarity_motifs, complement_clustering
 
 
 '''
 Internal functions that are only needed for clustering with subset and approximating clusters
 '''
-def complement_clustering(clusters, pwmnames, pwm_set, similarities, pwmnames_left, pwm_left, randmix):
-    '''
-    Wrapper to save space in main. 
-    1) Computes distancce matrix between triplets from assigned clusters and
-    left out data points.
-    2) Assigns left out data points based on distance cut off and linkage 
-    function to the already existing clusters
-    3) If data points could not be assigned, performs another clustering of
-    those independently
-    4) Combines cluster sets and returns names, clusters and pwms back to
-    original order
-    
-    '''
-    triplets, tripclusters = _determine_triplets(clusters, similarities) # three members of the cluster to which left out data points will be measured
-    corr_left, ofs_left, revcomp_matrix_left = torch_compute_similarity_motifs(pwm_set[triplets], pwm_left, metric = args.distance_metric, return_alignment = True, min_sim = args.min_overlap, infocont = args.infocont, reverse_complement = args.reverse_complement, exact = True)
-    
-    checkmat = corr_left.reshape(3,-1,corr_left.shape[-1])
-    
-    clusters_left = assign_leftout_to_cluster(tripclusters, checkmat, args.linkage, args.distance_threshold)
-    
-    print(len(clusters_left)-len(np.where(clusters_left == -1)[0]), 'added to assigned clusters')
-    
-    if len(np.where(clusters_left == -1)[0]) > 1 and len(np.where(clusters_left == -1)[0]) <= args.approximate_cluster_on:
-        print(f'Reclustering of {len(np.where(clusters_left == -1)[0])} clusters')
-        corr_left, ofs_left, revcomp_matrix_left = torch_compute_similarity_motifs(pwm_left[clusters_left == -1], pwm_left[clusters_left == -1], metric = args.distance_metric, return_alignment = True, min_sim = args.min_overlap, infocont = args.infocont, reverse_complement = args.reverse_complement, exact = args.approximate_distance)
-
-        clustering = AgglomerativeClustering(n_clusters = None, metric = 'precomputed', linkage = args.linkage, distance_threshold = args.distance_threshold).fit(corr_left)
-        clusters_left[clusters_left == -1] = np.amax(clusters) + clustering.labels_
-
-    resort = np.argsort(randmix)
-    clusters = np.append(clusters, clusters_left)[resort]
-    pwmnames = np.append(pwmnames, pwmnames_left)[resort]
-    pwm_set = np.array(list(pwm_set)+list(pwm_left), dtype = object)[resort]
-
-    return clusters, pwmnames, pwm_set
-
-def _get_third(csim, consider = 60):
-    argmin = np.argsort(csim.flatten())[:consider]
-    argmin = argmin//csim.shape[-1], argmin%csim.shape[-1]
-    simtothird = csim[argmin[0]] + csim[argmin[1]]
-    third = np.argmin(simtothird, axis = 1)
-    best = [argmin[0], argmin[1], third]
-    bestdist = csim[best[0], best[1]] + csim[best[2], best[1]] + csim[best[0], best[2]]
-    best = np.array(best)[:,np.argmin(bestdist)]
-    return best
-
-def _determine_triplets(clusters, similarity):
-    '''
-    Determine three data points in a cluster that are the furthest apart from
-    each other. Use these three data points to determine if another data point
-    should be assigned to that cluster.
-    
-    '''
-    uclusters = np.unique(clusters)
-    bests = []
-    for u, uc in enumerate(uclusters):
-        mask = np.where(clusters == uc)[0]
-        csim = similarity[mask][:,mask]
-        best = _get_third(csim)
-        bests.append(np.array(mask)[best])
-        
-    return np.concatenate(bests), np.repeat(uclusters,3)
 
 def combine_pwms_separately(pwm_set, clusters):
     '''

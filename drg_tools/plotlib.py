@@ -627,7 +627,7 @@ def plot_heatmap(heatmat, # matrix that is plotted with imshow
                  ylabel = None, # ylabel
                  xticklabels = None,
                  yticklabels  = None,
-                colormaplabel = None,
+                 colormaplabel = None,
                  showdpi = None, # dpi value for plotting with plt.show()
                  dpi = None, # dpi value for savefig
                  figname = None, # if given, figure saved under this name

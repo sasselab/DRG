@@ -112,7 +112,19 @@ def save_bed_of_motif_matches(query_names, target_names, motif_locations_info_pa
             curr_chr = np.array([pos_info[seq_id][0]] * len(track_rows))
             motif_starts = track_rows['motif_starts'].values + seq_start_pos
             motif_ends = track_rows['motif_ends'].values + seq_start_pos
-            bed_rows = [[curr_chr[i], motif_starts[i], motif_ends[i], query_to_target[track_rows['motif_ids'].values[i]]] for i in range(len(track_rows))]
+            #bed_rows = [[curr_chr[i], motif_starts[i], motif_ends[i], query_to_target[track_rows['motif_ids'].values[i]]] for i in range(len(track_rows))]
+            
+            bed_rows = [
+                [
+                    curr_chr[i],
+                    motif_starts[i],
+                    motif_ends[i],
+                    query_to_target[track_rows['motif_ids'].values[i]]
+                    if track_rows['motif_ids'].values[i] in query_to_target
+                    else track_rows['motif_ids'].values[i]
+                ]
+                for i in range(len(track_rows))]
+            
             bed_file_path = f'{save_dir}{seq_id}_{track_id}.bed'
             with open(bed_file_path, "w") as bed_file:
                 for row in bed_rows:

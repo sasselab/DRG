@@ -5,6 +5,7 @@ import argparse
 import pickle
 from tangermeme.tools.tomtom import tomtom
 from tangermeme.io import read_meme
+from statsmodels.stats.multitest import multipletests
 
 def parse_motif_locations(input_string):
     # parse file containing info on motif locations 
@@ -42,13 +43,15 @@ def get_tomtom_matches(motif_database_path, input_seqlet_path,qval_threshold=0.0
     
     print(f'searching {len(queries)} queries against {len(targets)} targets')
     p, scores, offsets, overlaps, strands = tomtom(query_pwms, target_pwms)
-    
+
     # convert p value to q values 
-    q = (p*(p.shape[0]*p.shape[1])).numpy()
+    #q = (p*(p.shape[0]*p.shape[1])).numpy()
+    _, q, _, _ = multipletests(p.flatten(), method='fdr_bh')
+    q = q.reshape(p.shape[0], p.shape[1])
     
     # find query indices where there is a target match below threshold 
     below_threshold_query_idxs = np.where(np.min(q,axis=1)<qval_threshold)[0]
-    
+
     # get query names associated with below threshold idxs 
     below_threshold_query_names = np.char.strip(query_names[below_threshold_query_idxs])
 

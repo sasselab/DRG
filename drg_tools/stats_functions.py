@@ -1,5 +1,5 @@
 # stats_functions.py
-
+import scipy.stats as st
 '''
 Contains some functions to compute metrics that are often needed for model evaluations. 
 Most functions handle np.ndarrays
@@ -242,3 +242,112 @@ def pvalue_to_correlation(pval,n):
     return r
 
 
+def zscore2pvalue(z_scores, distribution = 'normal', alternative = 'one-sided'):
+    '''
+    Computes the pvalue from a zscore
+    '''
+    if distribution == 'normal':
+        pvalues = scipy.stats.norm.sf(abs(z_scores)) #one-sided
+    elif distribution == 't':
+        pvalues = scipy.stats.t.sf(abs(z_scores))
+    elif distribution == 'chi2':
+        pvalues = scipy.stats.chi2.sf(abs(z_scores))
+    elif distribution == 'f':
+        pvalues = scipy.stats.f.sf(abs(z_scores))
+
+    if alternative == 'two-sided':
+        pvalues *= 2
+    elif alternative == 'less':
+        pvalues[z_scores >= 0] = 1
+    elif alternative == 'greater':
+        pvalues [z_scores <= 0] = 1
+    return pvalues
+
+
+def pvalue2zscore(p_values, distribution='normal', alternative='one-sided'):
+    '''
+    Computes the z-score from a p-value (inverse of zscore2pvalue)
+    
+    Parameters:
+    -----------
+    p_values : float or array-like
+        p-values to convert to z-scores
+    distribution : str, optional
+        Distribution to use ('normal', 't', 'chi2', 'f'). Default is 'normal'
+    alternative : str, optional
+        Type of test ('one-sided', 'two-sided', 'less', 'greater'). Default is 'one-sided'
+        
+    Returns:
+    --------
+    z_scores : float or array-like
+        z-scores corresponding to the input p-values
+    '''
+    p_values = np.asarray(p_values)
+    
+    # Adjust p-values for two-sided tests
+    if alternative == 'two-sided':
+        p_adjusted = p_values / 2
+    else:
+        p_adjusted = p_values
+    
+    # Compute z-scores based on distribution
+    if distribution == 'normal':
+        z_scores = -st.norm.ppf(p_adjusted)
+    elif distribution == 't':
+        # For t-distribution, we need degrees of freedom, assuming large sample (use normal approximation)
+        z_scores = -st.norm.ppf(p_adjusted)
+    elif distribution == 'chi2':
+        # For chi2, we need degrees of freedom, return warning or use default
+        print("Warning: chi2 distribution requires degrees of freedom. Using normal approximation.")
+        z_scores = -st.norm.ppf(p_adjusted)
+    elif distribution == 'f':
+        # For F-distribution, we need two degrees of freedom, return warning or use default
+        print("Warning: F distribution requires degrees of freedom. Using normal approximation.")
+        z_scores = -st.norm.ppf(p_adjusted)
+    else:
+        raise ValueError(f"Unknown distribution: {distribution}")
+    
+    # Handle alternative hypotheses for directional tests
+    if alternative == 'less':
+        z_scores = -z_scores
+    elif alternative == 'greater':
+        # z_scores are already positive for greater alternative
+        pass
+    
+    return z_scores 
+
+
+def get_p_value_normal(z_score: float) -> float:
+    """get p value for normal(Gaussian) distribution 
+
+    Args:
+        z_score (float): z score
+
+    Returns:
+        float: p value
+    """
+    return round(norm.sf(z_score), decimal_limit)
+
+
+def get_p_value_t(z_score: float) -> float:
+    """get p value for t distribution 
+
+    Args:
+        z_score (float): z score
+
+    Returns:
+        float: p value
+    """
+    return round(t.sf(z_score), decimal_limit)
+
+
+def get_p_value_chi2(z_score: float) -> float:
+    """get p value for chi2 distribution 
+
+    Args:
+        z_score (float): z score
+
+    Returns:
+        float: p value
+    """
+    return round(chi2.ppf(z_score, df), decimal_limit)

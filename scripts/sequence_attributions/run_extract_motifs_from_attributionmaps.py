@@ -55,7 +55,7 @@ if __name__ == '__main__':
     norm = sys.argv[6] # normalization to detect significant bases
     
     outname += '_'+norm+'motifs'+str(cut)+'_'+str(maxgap)+'_'+str(minsig)
-    print(outname)
+
     if returned:
         # Estimate the variation of positions without attributions
         # TODO: Plot absolute attributions against rank
@@ -80,7 +80,6 @@ if __name__ == '__main__':
         std = np.float64(sys.argv[7])
     else:
         std = np.array(1.)
-    print('std', std, type(std))
     
     refatt = np.sum(values*seqs[:,None,:,:], axis = -1)
     stats = refatt/std
@@ -109,9 +108,8 @@ if __name__ == '__main__':
     
     print(f'{len(pwmnames)} extracted pwms from attributions of shape', np.shape(refatt))
     pwms = np.array(pwms, dtype = object)
-    print(np.shape(pwms))
     np.savez_compressed(outname+'.npz', pwms = pwms, pwmnames = pwmnames)
-            
+    print(f'Saved pwms to {outname}.npz')       
     
     
     

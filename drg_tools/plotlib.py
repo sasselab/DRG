@@ -518,7 +518,8 @@ def plot_single_pwm(pwm, log = False, showaxes = False, channels = list('ACGT'),
 def reverse(pwm):
     return pwm[::-1][:,::-1]
 
-def plot_pwms(pwm, log = False, showaxes = False, unit = 0.4, channels= list('ACGT'), offsets = None, revcomp_matrix = None, align_to = 0):
+def plot_pwms(pwm, log = False, showaxes = False, unit = 0.4, channels= list('ACGT'), 
+              offsets = None, revcomp_matrix = None, align_to = 0):
     '''
     Aligns and plots multiple pwms
     use align_to to determine to which pwm the others should be aligned
@@ -877,7 +878,7 @@ def plot_heatmap(heatmat, # matrix that is plotted with imshow
             vmax = np.amax(heatmat)
         
         ax.imshow(heatmat, aspect = 'auto', cmap = heatmapcolor, vmin = vmin, 
-                  vmax = vmax, origin = 'lower')
+                  vmax = vmax, origin = 'lower', interpolation = 'none')
         ax.set_yticks(np.arange(len(heatmat)))
         ax.set_xticks(np.arange(len(heatmat[0])))
        
@@ -891,7 +892,7 @@ def plot_heatmap(heatmat, # matrix that is plotted with imshow
         axcol.tick_params(bottom = False, labelbottom = False, labeltop = True,
                           top = True, left = False, labelleft = False)
         axcol.imshow(np.linspace(0,1,101).reshape(1,-1), aspect = 'auto', 
-                     cmap = heatmapcolor)
+                     cmap = heatmapcolor, )
         axcol.set_xticks([0,101])
         
         colormapresolution = 1
@@ -1370,7 +1371,8 @@ def plot_distribution(
             if len(np.shape(data)) > 1:
                 data = np.mean(data, axis = 1)
             bplot = ax.barh(positions, data, height = width*0.9, color = barcolor, linewidth = 1)
-            ax.set_ylim([np.amin(positions)-0.5, np.amax(positions)+0.5])
+            ax.set_ylim([-0.5, int(len(data)/split)-0.5])
+            #ax.set_ylim([np.amin(positions)-0.5, np.amax(positions)+0.5])
         
         # create a legend()
         if isinstance(facecolor, list) and legend_labels is not None:

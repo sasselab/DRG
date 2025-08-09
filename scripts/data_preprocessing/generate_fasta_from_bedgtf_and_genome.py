@@ -27,7 +27,7 @@ if __name__ == '__main__':
     else:
         ifile = readgtf(infofile)
     
-    print('Data format', np.shape(ifile))
+    #print('Data format', np.shape(ifile))
 
 
     if '--generate_transcripts' in sys.argv:
@@ -91,16 +91,16 @@ if __name__ == '__main__':
 
     # iterate over all chromosomes in the infofile
     uchroms = np.unique(ifile[:,0])
-    print(uchroms)
+    #print(uchroms)
 
-    print(outname)
+    #print(outname)
     pos_info = {}
 
     # generate fasta file with sequences
     outfasta = open(outname+'.fasta', 'w')
     for u, uchr in enumerate(uchroms):
         if os.path.isfile(chrfold.rstrip('/')+'/'+uchr+'.fa.gz'):
-            print('Read',chrfold.rstrip('/')+'/'+uchr+'.fa.gz') 
+            #print('Read',chrfold.rstrip('/')+'/'+uchr+'.fa.gz') 
             chrfasta = readgenomefasta(chrfold.rstrip('/')+'/'+uchr+'.fa.gz')
             print('Length', len(chrfasta))
             chrextra = 'N' * flank

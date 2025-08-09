@@ -477,31 +477,61 @@ class BCEMSE(nn.Module):
             loss += closs
         return loss
 
+# Use this loss function to wrap any other loss function
+class LogTransformLoss(nn.Module):
+    def __init__(self, reduction = 'none', eps = 1., log_prediction = True, 
+                 adjust_to_min = False, loss_func = nn.MSELoss):
+        super(LogTransformLoss, self).__init__()
+        self.loss_func = loss_func(reduction = reduction)
+        self.eps = eps
+        self.log_prediction = log_prediction
+        self.adjust_to_min = adjust_to_min
+    def forward(self, p, q):
+        if self.adjust_to_min:
+            # for log counts, we need to subtract the minimum value, so that the minimum non-negative
+            minq = torch.min(q,dim =-1)[0]
+            minq[minq > 0] = 0.
+            q = q-minq.unsqueeze(-1)
+        q =torch.log(q+self.eps)
+        if self.log_prediction:
+            if self.adjust_to_min:
+                minp = torch.min(p,dim =-1)[0]
+                p = p-minp.unsqueeze(-1)
+            p =torch.log(p+self.eps)
+        return self.loss_func(p,q)    
+
+
 class LogMSELoss(nn.Module):
-    def __init__(self, reduction = 'none', eps = 1., log_prediction = False):
+    def __init__(self, reduction = 'none', eps = 1., log_prediction = True, adjust_to_min = False):
         super(LogMSELoss, self).__init__()
         self.mse = nn.MSELoss(reduction = reduction)
         self.eps = eps
+        self.log_prediction = log_prediction
+        self.adjust_to_min = adjust_to_min
     def forward(self, p, q):
-        minq = torch.min(q,dim =-1)[0]
-        q = q-minq.unsqueeze(-1)
+        if self.adjust_to_min:
+            minq = torch.min(q,dim =-1)[0]
+            q = q-minq.unsqueeze(-1)
         q =torch.log(q+self.eps)
         if self.log_prediction:
-            p = p-minp.unsqueeze(-1)
-            minp = torch.min(p,dim =-1)[0]
+            if self.adjust_to_min:
+                minp = torch.min(p,dim =-1)[0]
+                p = p-minp.unsqueeze(-1)
             p =torch.log(p+self.eps)
         return self.mse(p,q)
     
 class LogL1Loss(nn.Module):
-    def __init__(self, reduction = 'none', eps = 1.):
+    def __init__(self, reduction = 'none', eps = 1., adjust_to_min = False):
         super(LogL1Loss, self).__init__()
         self.mse = nn.L1Loss(reduction = reduction)
         self.eps = eps
+        self.adjust_to_min = adjust_to_min
     def forward(self, p, q):
-        minp = torch.min(p,dim =-1)[0]
-        minq = torch.min(q,dim =-1)[0]
-        p = p-minp.unsqueeze(-1)
-        q = q-minq.unsqueeze(-1)
+        if self.adjust_to_min:
+            minp = torch.min(p,dim =-1)[0]
+            minq = torch.min(q,dim =-1)[0]
+            p = p-minp.unsqueeze(-1)
+            q = q-minq.unsqueeze(-1)
         p =torch.log(p+self.eps)
         q =torch.log(q+self.eps)
         return self.mse(p,q)   

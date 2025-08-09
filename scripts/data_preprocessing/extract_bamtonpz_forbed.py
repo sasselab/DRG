@@ -1,8 +1,16 @@
-# This python script uses pysam takes aligned sequences in a bam file and
-# returns single basepair counts for the given regions in the bed file
-# TODO
-# Document script, put extraction of atac counts into function and put into
-# data_processing
+#Uses bam and bed file to compute the coverage 
+# within the regions in the bed file. 
+# Can shift the reads or fragments and count individual 
+# ends or over the entire fragment. 
+# Returns npz file with 'names' of the regions from bed file, 
+# 'counts' within that region. 
+# Counts are of shape (names,1,bins_in_window) 
+# to concatenate along axis one later.
+
+# USE: python atac_counts.py sorted.GN.Thio.PC.bam ImmGenATAC1219.peak_matched.txt 
+# --shift 4,-4 --outdir BPprofiles/ --countmode 53
+
+
 import numpy as np
 import sys, os
 import pysam
@@ -11,7 +19,6 @@ import time
 from drg_tools.io_utils import isint
 from drg_tools.sequence_utils import avgpool
 
-# TODO include readbed into io_utils and use pandas
 def readbed(bedfile, offset = 0):
     bf = open(bedfile, 'r').readlines()
     bedfile = {'names':[], 'contigs':[], 'positions': []}

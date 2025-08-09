@@ -403,7 +403,7 @@ def assign_leftout_to_cluster(tripletclusters, checkmat, linkage, distance_thres
 
     return clusters_left
 
-def complement_clustering(clusters, pwmnames, pwm_set, similarities, pwmnames_left, pwm_left, randmix):
+def complement_clustering(clusters, pwmnames, pwm_set, similarities, pwmnames_left, pwm_left, randmix, distance_metric, min_sim, infocont, reverse_complement, distance_threshold, linkage):
     '''
     Wrapper to save space in main. 
     1) Computes distancce matrix between triplets from assigned clusters and
@@ -417,19 +417,21 @@ def complement_clustering(clusters, pwmnames, pwm_set, similarities, pwmnames_le
     
     '''
     triplets, tripclusters = _determine_triplets(clusters, similarities) # three members of the cluster to which left out data points will be measured
-    corr_left = torch_compute_similarity_motifs(pwm_set[triplets], pwm_left, metric = args.distance_metric, return_alignment = False, min_sim = args.min_overlap, infocont = args.infocont, reverse_complement = args.reverse_complement, exact = True)
+    corr_left = torch_compute_similarity_motifs(pwm_set[triplets], pwm_left, metric = distance_metric, return_alignment = False, min_sim = min_sim, infocont =infocont, reverse_complement = reverse_complement, exact = True)
     
     checkmat = corr_left.reshape(3,-1,corr_left.shape[-1])
     
-    clusters_left = assign_leftout_to_cluster(tripclusters, checkmat, args.linkage, args.distance_threshold)
+    clusters_left = assign_leftout_to_cluster(tripclusters, checkmat, linkage, distance_threshold)
     
     print(len(clusters_left)-len(np.where(clusters_left == -1)[0]), 'added to assigned clusters')
     
-    if len(np.where(clusters_left == -1)[0]) > 1 and len(np.where(clusters_left == -1)[0]) <= args.approximate_cluster_on:
+    # Check if too many could not be assigned to existing clusters
+    # if set is smaller than originally clustered set, then cluster those separatly.
+    if len(np.where(clusters_left == -1)[0]) > 1 and len(np.where(clusters_left == -1)[0]) <= len(pwmnames):
         print(f'Reclustering of {len(np.where(clusters_left == -1)[0])} clusters')
-        corr_left, ofs_left, revcomp_matrix_left = torch_compute_similarity_motifs(pwm_left[clusters_left == -1], pwm_left[clusters_left == -1], metric = args.distance_metric, return_alignment = True, min_sim = args.min_overlap, infocont = args.infocont, reverse_complement = args.reverse_complement, exact = args.approximate_distance)
+        corr_left, ofs_left, revcomp_matrix_left = torch_compute_similarity_motifs(pwm_left[clusters_left == -1], pwm_left[clusters_left == -1], metric = distance_metric, return_alignment = True, min_sim = min_sim, infocont = infocont, reverse_complement = reverse_complement, exact = True)
 
-        clustering = AgglomerativeClustering(n_clusters = None, metric = 'precomputed', linkage = args.linkage, distance_threshold = args.distance_threshold).fit(corr_left)
+        clustering = AgglomerativeClustering(n_clusters = None, metric = 'precomputed', linkage = linkage, distance_threshold = distance_threshold).fit(corr_left)
         clusters_left[clusters_left == -1] = np.amax(clusters) + clustering.labels_
 
     resort = np.argsort(randmix)

@@ -1209,7 +1209,7 @@ def write_meme_file(pwm, pwmname, alphabet, output_file_path, round = None, bias
                     meme_file.write(str(pw[ a, j])+ "\t")
                 else:
                     meme_file.write(str(pw[ a, j])+ "\n")
-
+    meme_file.write("\n")
 
     meme_file.close()
 

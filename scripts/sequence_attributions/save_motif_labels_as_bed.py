@@ -49,6 +49,9 @@ def get_tomtom_matches(motif_database_path, input_seqlet_path,qval_threshold=0.0
     _, q, _, _ = multipletests(p.flatten(), method='fdr_bh')
     q = q.reshape(p.shape[0], p.shape[1])
     
+    #print(q.shape)
+    #for i, ql in enumerate(q):
+    #   print(f'query {query_names[i]}: {target_names[np.argsort(ql)][np.sort(ql) < qval_threshold]}')
     # find query indices where there is a target match below threshold 
     below_threshold_query_idxs = np.where(np.min(q,axis=1)<qval_threshold)[0]
 
@@ -61,7 +64,7 @@ def get_tomtom_matches(motif_database_path, input_seqlet_path,qval_threshold=0.0
         curr_qvals = q[query_idx, :]  
         below_threshold_idxs = np.where(curr_qvals < qval_threshold)[0] 
         sorted_idxs = below_threshold_idxs[np.argsort(curr_qvals[below_threshold_idxs])]
-        target_names_below_threshold = [target_names[idx].split('_')[2] for idx in sorted_idxs]
+        target_names_below_threshold = [target_names[idx].split('_')[-2] if '_' in target_names[idx] else target_names[idx] for idx in sorted_idxs]
         target_match_string = ",".join(target_names_below_threshold)
         target_match_names.append(target_match_string)  
     target_match_names=np.array(target_match_names)
@@ -130,6 +133,7 @@ def save_bed_of_motif_matches(query_names, target_names, motif_locations_info_pa
             
             bed_file_path = f'{save_dir}{seq_id}_{track_id}.bed'
             with open(bed_file_path, "w") as bed_file:
+                print(f'Saving {len(bed_rows)} motifs to {bed_file_path}')
                 for row in bed_rows:
                     bed_file.write("\t".join(map(str, row)) + "\n")
 

@@ -950,15 +950,17 @@ def readin(inputfile, outputfile, delimiter=None, return_header=True,
         Y, outputnames, hasoutput = None, None, False
 
     # Align input and output data
-    sortx = np.argsort(inputnames)
-    inputnames = np.array(inputnames)[sortx]
     if hasoutput:
-        sortx = sortx[np.isin(np.sort(inputnames), outputnames)]
+        sortx = np.argsort(inputnames)[np.isin(np.sort(inputnames), outputnames)]
         sorty = np.argsort(outputnames)[np.isin(np.sort(outputnames), inputnames)]
         X = X[sortx] if combinex else [Xi[sortx] for Xi in X]
         Y = Y[sorty] if isinstance(Y, np.ndarray) else [Yi[sorty] for Yi in Y]
         outputnames = outputnames[sorty]
+        inputnames = inputnames[sortx]
     else:
+        # If no output data, sort input data based on input names
+        sortx = np.argsort(inputnames)
+        inputnames = inputnames[sortx]
         X = X[sortx] if combinex else [Xi[sortx] for Xi in X]
 
     # Extract header if needed

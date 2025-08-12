@@ -820,9 +820,10 @@ def readalign_matrix_files(matrixfiles, split = ',', delimiter = None, align_row
 
 
 def readin(inputfile, outputfile, delimiter=None, return_header=True,
-            assign_region=True, n_features=4, combinex=True, 
-            mirrorx=False, input_features='seqfeatures', output_features='counts',
-             input_names = 'genenames', output_names = 'names'):
+            assign_region=False, n_features=4, combinex=False, combinex_axis=-1, dataname_column=0,
+            unique_inputs=True, unique_outputs=True, paired_inout=False, mirrorx=False,
+            input_features='seqfeatures', output_features='counts',
+            input_names='genenames', output_names='names', start_data=1):
     """
     Reads input and output files for neural network training, aligns their data points based on names,
     and processes them into a format suitable for training.
@@ -838,11 +839,23 @@ def readin(inputfile, outputfile, delimiter=None, return_header=True,
     return_header : bool, optional
         Whether to return the header from the output file (default is True).
     assign_region : bool, optional
-        Whether to assign regions to the input data (default is True).
+        Whether to assign regions to the input data if there are more than one sequence input
+        (default is True).
     n_features : int, optional
         Number of features to retain if `assign_region` is False (default is 4).
     combinex : bool, optional
-        Whether to combine input features into a single array (default is True).
+        Whether to combine input features into a single array (default is True), for example UTR and CDS sequence
+    combinex_axis : int, optional
+        Axis along which to combine input features (default is -1, which means the length axis).
+        but can also be used for channels with -2
+    unique_inputs : bool, optional
+        Whether to ensure unique input names across multiple inputs (default is True).
+    unique_outputs : bool, optional
+        Whether to ensure unique output names across multiple outputs (default is True).
+    dataname_column : int, optional
+        Column index for the data names in the output file (default is 0).
+    start_data : int, optional
+        Column index to start reading data from the output file (default is 1).
     mirrorx : bool, optional
         Whether to realign input features (default is False).
     input_features : str, optional
@@ -875,7 +888,7 @@ def readin(inputfile, outputfile, delimiter=None, return_header=True,
     """
 
     def process_input_file(file):
-        """Processes a single input file and returns its data, features, and names."""
+        """Read in a single input file and returns its data, features, and names."""
         if os.path.splitext(file)[1] == '.npz':
             Xin = np.load(file, allow_pickle=True)
             X = Xin[input_features]
@@ -892,7 +905,7 @@ def readin(inputfile, outputfile, delimiter=None, return_header=True,
             return X, inputfeatures, inputnames
 
     def process_output_file(file):
-        """Processes a single output file and returns its data and names."""
+        """Read in a single output file and returns its data and names."""
         if os.path.splitext(file)[1] == '.npz':
             Yin = np.load(file, allow_pickle=True)
             Y = Yin[output_features]
@@ -901,17 +914,17 @@ def readin(inputfile, outputfile, delimiter=None, return_header=True,
             Yin = np.genfromtxt(file, dtype=str, delimiter=delimiter)
             try:
                 # Attempt to convert all rows (except the first) to float
-                Y = Yin[:, 1:].astype(float)
-                outputnames = Yin[:, 0]
+                Y = Yin[:, start_data:].astype(float)
+                outputnames = Yin[:, dataname_column].astype(str)
             except ValueError:
                 # If conversion fails, remove the first row and try again
                 print(f"Warning: Non-numeric values detected in the first row of {file}. Removing it.")
                 Yin = Yin[1:]  # Remove the first row
-                Y = Yin[:, 1:].astype(float)
-                outputnames = Yin[:, 0]
+                Y = Yin[:, start_data:].astype(float)
+                outputnames = Yin[:, dataname_column].astype(str)
         return Y, outputnames
 
-    # Process input files
+    # Process input files. Can be multiple separated by ,
     if ',' in inputfile:
         inputfile = inputfile.split(',')
     if isinstance(inputfile, list):
@@ -921,12 +934,16 @@ def readin(inputfile, outputfile, delimiter=None, return_header=True,
             X.append(Xi)
             inputfeatures.append(features)
             inputnames.append(names)
-        comnames = reduce(np.intersect1d, inputnames)
-        X = [Xi[np.isin(names, comnames)] for Xi, names in zip(X, inputnames)]
-        inputnames = comnames
-        if combinex:
-            X = np.concatenate(X, axis=1)
-        inputfeatures = np.concatenate(inputfeatures) if len(inputfeatures) > 1 else inputfeatures[0]
+        # Find common names across all input files
+        if unique_inputs:
+            comnames = reduce(np.intersect1d, inputnames)
+            X = [Xi[np.argsort(names)[np.isin(np.sort(names), comnames)]] for Xi, names in zip(X, inputnames)]
+            inputnames = comnames
+            if combinex:
+                if assign_region:
+                    X = assign_regions(X) ## assign each input a channel that determines the region
+                X = np.concatenate(X, axis=1) ## concatenate either along the channel axis or the length axis
+                inputfeatures = np.concatenate(inputfeatures) if (len(inputfeatures) > 1) and (combinex_axis == -2) else inputfeatures[0]
     else:
         X, inputfeatures, inputnames = process_input_file(inputfile)
 
@@ -936,20 +953,22 @@ def readin(inputfile, outputfile, delimiter=None, return_header=True,
         hasoutput = True
     elif ',' in outputfile:
         outputfile = outputfile.split(',')
+    if isinstance(outputfile, list):
         Y, outputnames = [], []
         for file in outputfile:
             Yi, names = process_output_file(file)
             Y.append(Yi)
             outputnames.append(names)
-        comnames = reduce(np.intersect1d, outputnames)
-        Y = [Yi[np.isin(names, comnames)] for Yi, names in zip(Y, outputnames)]
-        outputnames = comnames
+        if unique_outputs:
+            comnames = reduce(np.intersect1d, outputnames)
+            Y = [Yi[np.argsort(names)[np.isin(np.sort(names), comnames)]] for Yi, names in zip(Y, outputnames)]
+            outputnames = comnames
         hasoutput = True
-    else:
-        print(f"{outputfile} is not a valid file.")
+    elif not hasoutput:
+        print(f"{outputfile} is not a valid file or list.")
         Y, outputnames, hasoutput = None, None, False
 
-    # Align input and output data
+    # Align input and output data if has output and unique_inputs and unique_outputs
     if hasoutput:
         sortx = np.argsort(inputnames)[np.isin(np.sort(inputnames), outputnames)]
         sorty = np.argsort(outputnames)[np.isin(np.sort(outputnames), inputnames)]
@@ -957,11 +976,19 @@ def readin(inputfile, outputfile, delimiter=None, return_header=True,
         Y = Y[sorty] if isinstance(Y, np.ndarray) else [Yi[sorty] for Yi in Y]
         outputnames = outputnames[sorty]
         inputnames = inputnames[sortx]
-    else:
+    elif not hasoutput and unique_inputs:
         # If no output data, sort input data based on input names
         sortx = np.argsort(inputnames)
         inputnames = inputnames[sortx]
         X = X[sortx] if combinex else [Xi[sortx] for Xi in X]
+    elif hasoutput and paired_inout and not combinex:
+        if isinstance(X, list) and isinstance(Y, list):
+            for l in range(len(X)):
+                if np.shape(X[l]) == np.shape(Y[l]):
+                    sortx = np.argsort(inputnames[l])[np.isin(np.sort(inputnames[l]), outputnames[l])]
+                    sorty = np.argsort(outputnames[l])[np.isin(np.sort(outputnames[l]), inputnames[l])]
+                    X[l] = X[l][sortx] if combinex else [Xi[sortx] for Xi in X[l]]
+                    Y[l] = Y[l][sorty] if isinstance(Y[l], np.ndarray) else [Yi[sorty] for Yi in Y[l]]
 
     # Extract header if needed
     header = None

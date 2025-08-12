@@ -3,7 +3,8 @@ import pandas as pd
 import os
 import argparse
 import pickle
-from tangermeme.tools.tomtom import tomtom
+#from tangermeme.tools.tomtom import tomtom
+from memelite import tomtom
 from tangermeme.io import read_meme
 from statsmodels.stats.multitest import multipletests
 

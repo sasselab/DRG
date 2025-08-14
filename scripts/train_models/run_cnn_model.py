@@ -523,7 +523,6 @@ if __name__ == '__main__':
             tsort.append(list(meanclasses[:,0]).index(exp))
         meanclasses = meanclasses[tsort][:,1]
     
-    
     if Y is not None:
             
         # If we split on different classes, such as p_values and foldchanges but train on both, one can split the assessment between them
@@ -637,8 +636,18 @@ if __name__ == '__main__':
         print('SAVED', outname+'_pred.npz', np.shape(Y_pred))
         #np.savetxt(outname+'_pred.txt', np.append(names[testset][:, None], Y_pred, axis = 1), fmt = '%s')
         np.savez_compressed(outname+'_pred.npz', names = names[testset], values = Y_pred, columns = experiments)
-    
-    
+
+    if '--save_average_predictions' in sys.argv and meanclasses is not None:
+        selected_tracks = sys.argv[sys.argv.index('--save_average_predictions')+1]
+        track_indices = get_index_from_string(selected_tracks, experiments, delimiter = ',')
+        if meanclasses is not None:
+            track_indices_classes = meanclasses[track_indices]
+            unique_track_indices_classes = np.unique(track_indices_classes)
+            Y_pred_mean = []
+            for trincl in unique_track_indices_classes:
+                Y_pred_mean.append(np.mean(Y_pred[:, track_indices[meanclasses == trincl]], axis = 1))
+        np.savez_compressed(outname+'_'+selected_tracks+'avgpred.npz', names = names[testset], values = np.array(Y_pred_mean).T, columns = unique_track_indices_classes)
+
     if '--save_kernel_filters' in sys.argv:
         weights, biases, motifnames = extract_kernelweights_from_state_dict(model.state_dict(), kernel_layer_name = 'convolutions.conv1d')
         write_meme_file(weights, motifnames, 'ACGT', outname+'_kernelweights.meme', biases = biases)
@@ -667,7 +676,7 @@ if __name__ == '__main__':
             for trincl in unique_track_indices_classes:
                 ntrack_indices.append(track_indices[track_indices_classes == trincl])
             track_indices = ntrack_indices
-            
+          
         if attribution_type == 'ism':
             attarray = ism(X[testset], model, track_indices)
         elif attribution_type == 'grad':

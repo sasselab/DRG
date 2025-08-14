@@ -820,10 +820,10 @@ def readalign_matrix_files(matrixfiles, split = ',', delimiter = None, align_row
 
 
 def readin(inputfile, outputfile, delimiter=None, return_header=True,
-            assign_region=False, n_features=4, combinex=False, combinex_axis=-1, dataname_column=0,
+            assign_region=False, n_features=4, combinex=False, combinex_axis=-1, dataname_column=0, start_data=1,
             unique_inputs=True, unique_outputs=True, paired_inout=False, mirrorx=False,
-            input_features='seqfeatures', output_features='counts',
-            input_names='genenames', output_names='names', start_data=1):
+            input_features='seqfeatures', output_features='counts', input_featnames = 'featurenames', output_featnames = 'celltypes',
+            input_names='genenames', output_names='names'):
     """
     Reads input and output files for neural network training, aligns their data points based on names,
     and processes them into a format suitable for training.
@@ -893,7 +893,7 @@ def readin(inputfile, outputfile, delimiter=None, return_header=True,
             Xin = np.load(file, allow_pickle=True)
             X = Xin[input_features]
             inputnames = Xin[input_names].astype(str)
-            inputfeatures = Xin['featurenames'] if 'featurenames' in Xin.files else np.arange(X.shape[-1]).astype(str)
+            inputfeatures = Xin[input_featnames] if input_featnames in Xin.files else np.arange(X.shape[-1]).astype(str)
             if mirrorx:
                 X = realign(X)
             return X, inputfeatures, inputnames
@@ -948,6 +948,7 @@ def readin(inputfile, outputfile, delimiter=None, return_header=True,
         X, inputfeatures, inputnames = process_input_file(inputfile)
 
     # Process output files
+    hasoutput = False
     if os.path.isfile(outputfile):
         Y, outputnames = process_output_file(outputfile)
         hasoutput = True
@@ -998,14 +999,14 @@ def readin(inputfile, outputfile, delimiter=None, return_header=True,
             for file, Yi in zip(outputfile, Y):
                 if os.path.splitext(file)[1] == '.npz':
                     Yin = np.load(file, allow_pickle=True)
-                    head = Yin['celltypes'] if 'celltypes' in Yin.files else [f"C{i}" for i in range(Yi.shape[1])]
+                    head = Yin[output_featnames] if output_featnames in Yin.files else [f"C{i}" for i in range(Yi.shape[1])]
                 else:
                     head = open(file, 'r').readline().strip('#').strip().split(delimiter)
                 header.append(np.array(head)[-Yi.shape[-1]:])
         else:
             if os.path.splitext(outputfile)[1] == '.npz':
                 Yin = np.load(outputfile, allow_pickle=True)
-                header = Yin['celltypes'] if 'celltypes' in Yin.files else [f"C{i}" for i in range(Y.shape[1])]
+                header = Yin[output_featnames] if output_featnames in Yin.files else [f"C{i}" for i in range(Y.shape[1])]
             else:
                 header = open(outputfile, 'r').readline().strip('#').strip().split(delimiter)
             header = np.array(header)[-Y.shape[-1]:]

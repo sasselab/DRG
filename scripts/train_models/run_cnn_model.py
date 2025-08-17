@@ -148,8 +148,14 @@ if __name__ == '__main__':
         mask = np.std(Y, axis = 1) == 0
         rand = np.random.normal(loc = 0, scale = 1e-4, size = np.shape(Y[mask]))
         Y[mask] += rand
-        
-    
+
+    if '--adjust_power' in sys.argv:
+        power = float(sys.argv[sys.argv.index('--adjust_power')+1])
+        if isinstance(Y, list):
+            Y = [np.power(power, y) for y in Y]
+        else:
+            Y = np.power(power, Y)
+
     if ',' in inputfile:
         inputfiles = inputfile.split(',')
         inputfile = inputfiles[0]

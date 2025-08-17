@@ -48,7 +48,7 @@ if __name__ == '__main__':
         if ',' in track_names:
             experiments = [np.genfromtxt(tr, dtype = str) for tr in track_names.split(',')]
         else:
-            experiments = np.genfromtxt(tr, str)
+            experiments = np.genfromtxt(track_names, dtype = str)
 
     # make X with 8 rows for ACGTACGT to capture the reverse complement
     reverse_complement = False
@@ -517,7 +517,7 @@ if __name__ == '__main__':
         
     meanclasses = None
     if '--average_outclasses' in sys.argv:
-        meanclasses = np.genfromtxt(sys.argv[sys.argv.index('--average_outclasses')+1], dtype = str)
+        meanclasses = np.genfromtxt(sys.argv[sys.argv.index('--average_outclasses')+1], dtype = str, delimiter = '\t')
         tsort = []
         for exp in experiments:
             tsort.append(list(meanclasses[:,0]).index(exp))

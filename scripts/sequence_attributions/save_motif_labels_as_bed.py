@@ -51,6 +51,8 @@ def get_per_lineage_tomtom_matches(expr_data_path, lineage_data_path, motif_data
     -- lineage_list is the list of lineages for which to do this lineage-specific mapping for 
     """
 
+    shorten_target_names= motif_database_path.split('/')[-1]=='mouse_pfms_v4.meme'  # for this motif database, need to shorten, for ex, 'ENSMUSG00000079808_LINE1933_AC1689771_I' to 'ac1689771' (to match with the expression data gene names)
+
     lineage_frame = pd.read_table(lineage_data_path, header = None, names = ['cell_type', 'lineage'])
     lineage_frame['lineage'] = lineage_frame['lineage'] .str.replace(' ', '_', regex=False) # Dendritic cell --> Dendritic_cell
 
@@ -63,10 +65,17 @@ def get_per_lineage_tomtom_matches(expr_data_path, lineage_data_path, motif_data
     grouped_expr = expr_data[mapping_series.index].groupby(mapping_series, axis=1).mean() # group expression data by using mapping from expression data cell types to lineages 
 
     database_motifs = tangermeme.io.read_meme(motif_database_path)  
-    shortened_database_motif_names = [item.split('_')[2].lower() for item in database_motifs.keys()] # from, for ex, 'ENSMUSG00000079808_LINE1933_AC1689771_I' to 'ac1689771' (to match with the expression data gene names)
+    if shorten_target_names:
+        database_motifs = {
+            key.split('_')[2].lower(): val for key, val in database_motifs.items()
+        }
+    else:
+        database_motifs = {
+            key.lower(): val for key, val in database_motifs.items()
+    }
 
     expr_set = set(grouped_expr.index.str.lower()) # genes found in the expression data
-    motifs_found_in_expr=[item for item in shortened_database_motif_names if item in expr_set] # database motifs found in the expression data 
+    motifs_found_in_expr=[item for item in database_motifs.keys() if item in expr_set] # database motifs found in the expression data 
     grouped_expr.index = grouped_expr.index.str.lower()
     final_filtered_grouped_expr=grouped_expr.loc[motifs_found_in_expr] # grouped expression data for genes present in motif database 
 
@@ -77,7 +86,7 @@ def get_per_lineage_tomtom_matches(expr_data_path, lineage_data_path, motif_data
         print(f'getting {lineage} tomtom mapping')
         if lineage in final_filtered_grouped_expr.columns: 
             above_threshold_database_motif_names = set(final_filtered_grouped_expr[final_filtered_grouped_expr[lineage]>expression_threshold].index.values)
-            lineage_specific_target_dict = {k: v for k, v in database_motifs.items() if k.lower().split('_')[2] in above_threshold_database_motif_names} # only use these in tomtom
+            lineage_specific_target_dict = {k: v for k, v in database_motifs.items() if k in above_threshold_database_motif_names} # only use these in tomtom
         else: 
             print(f'{lineage} not found in expression data, using all database motifs in tomtom matching')
             lineage_specific_target_dict=database_motifs # match to all database motifs 
@@ -87,7 +96,7 @@ def get_per_lineage_tomtom_matches(expr_data_path, lineage_data_path, motif_data
     return lineage_specific_tomtom_mapping_dict
 
 
-def get_tomtom_matches(target_motif_dict, query_motif_dict,qval_threshold=0.05):
+def get_tomtom_matches(target_motif_dict, query_motif_dict,qval_threshold=0.05,max_tomtom_matches=5):
     """
     Use tomtom to match query motifs to target motifs. Return a dictionary for each query that contains a target match with < qval_threshold. The dictionary maps 
     each query to a list of all target matches below qval_threshold (sepearted by ',').
@@ -118,7 +127,7 @@ def get_tomtom_matches(target_motif_dict, query_motif_dict,qval_threshold=0.05):
         curr_qvals = q[query_idx, :]  
         below_threshold_idxs = np.where(curr_qvals < qval_threshold)[0] 
         sorted_idxs = below_threshold_idxs[np.argsort(curr_qvals[below_threshold_idxs])]
-        target_names_below_threshold = [target_names[idx].split('_')[2] if '_' in target_names[idx] else target_names[idx] for idx in sorted_idxs]
+        target_names_below_threshold = [target_names[idx] for idx in sorted_idxs][:max_tomtom_matches]
         target_match_string = ",".join(target_names_below_threshold)
         target_match_names.append(target_match_string)  
     target_match_names=np.array(target_match_names)

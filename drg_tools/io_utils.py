@@ -451,7 +451,7 @@ def extract_sequences_from_bed(bedfile, genome, extend_before = 0, extend_after 
     Parameters
     ----------  
     bedfile : str
-        Location of bed file
+        Location of bed file or numpy array with information of bedfile
     genome : str
         Location of genome file or directory
     extend_before : int 
@@ -466,8 +466,16 @@ def extract_sequences_from_bed(bedfile, genome, extend_before = 0, extend_after 
         List of sequences
         
     '''
-    # read bedfile
-    bedfile = np.genfromtxt(bedfile, dtype = str)
+    if isinstance(bedfile, str):
+        # read bedfile
+        bedfile = np.genfromtxt(bedfile, dtype = str)
+    elif isinstance(bedfile, np.ndarray):
+        # use bedfile as is
+        pass
+    else:
+        print('Invalid bedfile format')
+        sys.exit()
+        
     # check if bedfile has strand information
     if np.shape(bedfile)[1] >= 6:
         strand = bedfile[:,5]

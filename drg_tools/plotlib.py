@@ -553,7 +553,6 @@ def plot_pwms(pwm, log = False, showaxes = False, unit = 0.4, channels= list('AC
         #needed to fit all pwms into region when aligned to each other
  
         fig = plt.figure(figsize = (unit*nshape[0], len(pwm) * nshape[1]*2*unit), dpi = 50)
-        print((unit*nshape[0], len(pwm) * nshape[1]*unit), len(pwm), nshape)
         for p, pw in enumerate(pwm):
             ax = fig.add_subplot(len(pwm), 1, p + 1)
             if revcomp_matrix[p] == 1:
@@ -932,6 +931,7 @@ def plot_heatmap(heatmat, # matrix that is plotted with imshow
                     xunique = np.unique(xunique)
                     for s, xuni in enumerate(xunique):
                         x_attributes[x, x_attributes[x] == xuni] = s
+            x_attributes = np.array(x_attributes, dtype = float)
             
             axatx = fig.add_subplot(717)
             axatx.spines['top'].set_visible(False)

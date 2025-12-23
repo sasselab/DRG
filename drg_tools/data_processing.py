@@ -45,11 +45,12 @@ def _groupings(tlen, groupsizes, kfold):
     return groups, np.array(csize), np.mean(np.abs(np.array(csize) - tlen))
 
 
-def generatetesttrain(names, groups, outname, kfold = 10):
+def generatetesttrain(names, groups, outname=None, kfold = 10, seed = 42):
     '''
     uses random sampling of groups to select combination of groups, so that 
     they are close to equal size.
     '''
+    np.random.seed(seed)
     ugroups, ugroupsize = np.unique(groups, return_counts = True)
     #print(ugroups, ugroupsize)
     n = len(names)
@@ -64,11 +65,19 @@ def generatetesttrain(names, groups, outname, kfold = 10):
             cdist = np.copy(msize)
     print('Best split', cdist)
 
-    obj=open(outname, 'w')
-    for j, grp in enumerate(combgroups):
-        print(j, ugroups[grp], np.sum(ugroupsize[grp]) - st)
-        test = names[np.isin(groups, ugroups[grp])]
-        obj.write('# Set_'+str(j)+'\n' + ' '.join(test)+'\n')
+    if outname is None:
+        fold_ids = []
+        for j, grp in enumerate(combgroups):
+            print(j, ugroups[grp], np.sum(ugroupsize[grp]) - st)
+            test = names[np.isin(groups, ugroups[grp])]
+            fold_ids.append(test)
+        return fold_ids
+    else:
+        obj=open(outname, 'w')
+        for j, grp in enumerate(combgroups):
+            print(j, ugroups[grp], np.sum(ugroupsize[grp]) - st)
+            test = names[np.isin(groups, ugroups[grp])]
+            obj.write('# Set_'+str(j)+'\n' + ' '.join(test)+'\n')
 
 def reduce_dim(X, red, var, center = True):
     '''

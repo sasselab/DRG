@@ -363,7 +363,7 @@ def torch_compute_similarity_motifs(ppms, ppms_ref,
         return correlation
 
 
-def assign_leftout_to_cluster(tripletclusters, checkmat, linkage, distance_threshold):
+def assign_leftout_to_cluster(tripletclusters, checkmat, linkage, distance_threshold, verbose = False):
     '''
     Assign data points that were left out of origional clustering to one of 
     the clusters
@@ -383,8 +383,8 @@ def assign_leftout_to_cluster(tripletclusters, checkmat, linkage, distance_thres
     clusters_left = -np.ones(checkmat.shape[-1], dtype = int)
     
     for c in range(checkmat.shape[-1]):
-        if c%1000==0:
-            print(c)
+        if c%1000==0 and verbose:
+            print(f'Processing left out data point {c}')
         if linkage == 'complete':
             poscl = np.where(np.sum(checkmat[...,c] < distance_threshold, axis = 0) == 3)[0]
             if len(poscl) > 0:
@@ -403,7 +403,15 @@ def assign_leftout_to_cluster(tripletclusters, checkmat, linkage, distance_thres
 
     return clusters_left
 
-def complement_clustering(clusters, pwmnames, pwm_set, similarities, pwmnames_left, pwm_left, randmix, distance_metric, min_sim, infocont, reverse_complement, distance_threshold, linkage):
+
+def complement_clustering(clusters, pwm_set, similarities, pwm_left,
+                          distance_metric, 
+                          min_sim, 
+                          infocont, 
+                          reverse_complement, 
+                          distance_threshold, 
+                          linkage,
+                          verbose = False):
     '''
     Wrapper to save space in main. 
     1) Computes distancce matrix between triplets from assigned clusters and
@@ -414,34 +422,73 @@ def complement_clustering(clusters, pwmnames, pwm_set, similarities, pwmnames_le
     those independently
     4) Combines cluster sets and returns names, clusters and pwms back to
     original order
-    
+    Args:
+        clusters : np.ndarray
+            cluster assignments of already clustered data points
+        pwmnames : np.ndarray (removed)
+            names of already clustered data points
+        pwm_set : np.ndarray
+            position weight matrices of already clustered data points
+        similarities : np.ndarray
+            similarity matrix of already clustered data points, higher values are more similar
+        pwmnames_left : np.ndarray (removed)
+            names of left out data points
+        pwm_left : np.ndarray
+            position weight matrices of left out data points
+        randmix : np.ndarray (removed)
+            random permutation used to shuffle data points before clustering the subset
+        distance_metric : str
+            metric used to compute distance between motifs
+        min_sim : float
+            minimum similarity threshold
+        infocont : float
+            information content threshold
+        reverse_complement : bool
+            whether to consider reverse complement
+        distance_threshold : float
+            threshold for assigning left out data points to clusters
+        linkage : str
+            linkage method for clustering
+
     '''
+    from sklearn.cluster import AgglomerativeClustering
     triplets, tripclusters = _determine_triplets(clusters, similarities) # three members of the cluster to which left out data points will be measured
+    # Compute distance matrix between triplets and left out data points
     corr_left = torch_compute_similarity_motifs(pwm_set[triplets], pwm_left, metric = distance_metric, return_alignment = False, min_sim = min_sim, infocont =infocont, reverse_complement = reverse_complement, exact = True)
-    
+    # Reshape to have shape (3, n_clusters, n_leftout)
     checkmat = corr_left.reshape(3,-1,corr_left.shape[-1])
-    
-    clusters_left = assign_leftout_to_cluster(tripclusters, checkmat, linkage, distance_threshold)
-    
-    print(len(clusters_left)-len(np.where(clusters_left == -1)[0]), 'added to assigned clusters')
+    # Assign left out data points to clusters based on distance matrix and linkage
+    clusters_left = assign_leftout_to_cluster(tripclusters, checkmat, linkage, distance_threshold, verbose = verbose)
+    if verbose:
+        print(len(clusters_left)-len(np.where(clusters_left == -1)[0]), 'added to assigned clusters')
     
     # Check if too many could not be assigned to existing clusters
     # if set is smaller than originally clustered set, then cluster those separatly.
-    if len(np.where(clusters_left == -1)[0]) > 1 and len(np.where(clusters_left == -1)[0]) <= len(pwmnames):
-        print(f'Reclustering of {len(np.where(clusters_left == -1)[0])} clusters')
+    if len(np.where(clusters_left == -1)[0]) > 1 and len(np.where(clusters_left == -1)[0]) <= len(clusters):
+        if verbose:
+            print(f'Warning: Reclustering of {len(np.where(clusters_left == -1)[0])} clusters')
         corr_left, ofs_left, revcomp_matrix_left = torch_compute_similarity_motifs(pwm_left[clusters_left == -1], pwm_left[clusters_left == -1], metric = distance_metric, return_alignment = True, min_sim = min_sim, infocont = infocont, reverse_complement = reverse_complement, exact = True)
-
         clustering = AgglomerativeClustering(n_clusters = None, metric = 'precomputed', linkage = linkage, distance_threshold = distance_threshold).fit(corr_left)
         clusters_left[clusters_left == -1] = np.amax(clusters) + clustering.labels_
 
-    resort = np.argsort(randmix)
-    clusters = np.append(clusters, clusters_left)[resort]
-    pwmnames = np.append(pwmnames, pwmnames_left)[resort]
-    pwm_set = np.array(list(pwm_set)+list(pwm_left), dtype = object)[resort]
-
-    return clusters, pwmnames, pwm_set
+    return clusters_left
+    #clusters = np.append(clusters, clusters_left)[resort]
+    #resort = np.argsort(randmix)
+    #pwmnames = np.append(pwmnames, pwmnames_left)[resort]
+    #pwm_set = np.array(list(pwm_set)+list(pwm_left), dtype = object)[resort]
+    #return clusters, pwmnames, pwm_set
 
 def _get_third(csim, consider = 60):
+    '''
+    Given a similarity matrix, determine three data points that are the furthest
+    apart from each other to represent a cluster.
+    Parameters
+    ----------
+    csim : np.ndarray
+        similarity matrix of data points in a cluster, higher values are more similar
+    consider : int
+        number of closest pairs to consider for determining the triplet
+    '''
     argmin = np.argsort(csim.flatten())[:consider]
     argmin = argmin//csim.shape[-1], argmin%csim.shape[-1]
     simtothird = csim[argmin[0]] + csim[argmin[1]]

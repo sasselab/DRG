@@ -487,8 +487,8 @@ def extract_sequences_from_bed(bedfile, genome, extend_before = 0, extend_after 
     uchroms = np.unique(bedfile[:,0])
     # check if genome is a directory or a file
     if os.path.isfile(genome):
-
         chromosome, genome_seq = readinfasta(genome, selection = uchroms)
+    
     elif os.path.isdir(genome):
         chromosome, genome_seq = [], []
         # iterate over all files in the directory
@@ -1146,7 +1146,20 @@ def read_pwm(pwmlist, nameline = 'Motif'):
     
     return pwms, np.array(names), np.array(nts)
 
-def read_meme(pwmlist, nameline = 'MOTIF'):
+def read_meme(pwmlist, nameline = 'MOTIF', name_index = 1):
+    '''
+    Reads in a meme file and returns the PWMs, names, and nucleotides
+    :param pwmlist: Path to the meme file
+    :param nameline: Line identifier for motif names
+    Returns:
+    --------
+    pwms : np.array
+        Array of PWMs, shape: n_motifs, motif_length, 4
+    names : np.array
+        Array of motif names
+    nts : np.array
+        Array of nucleotides
+    '''
     names = []
     pwms = []
     pwm = []
@@ -1160,7 +1173,7 @@ def read_meme(pwmlist, nameline = 'MOTIF'):
             names.append(name)
         elif len(line) > 0:
             if line[0] == nameline:
-                name = line[1]
+                name = line[name_index]
                 pwm = []
             elif line[0] == 'ALPHABET=':
                 nts = list(line[1])

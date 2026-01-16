@@ -382,11 +382,11 @@ def plot_attribution_maps(att, seq = None, motifs = None, experiments = None,
     ----------
     att : numpy array 
         Attributions of shape (N_seq, l_seq, channels)
-    seq : numpy array
+    seq : numpy array of shape (N_seq, l_seq, channels) or (l_seq, channels) if the same for all attributions
         One-hot encoded sequences for each attributions
-        If given, the attributions will be multiplie with this and only show the
+        If given, the attributions will be multiplied with this and only show the
         attributions for the given sequence in attribution map
-        Heatmaps are unaffeced
+        Heatmaps are unaffected
     motifs : list of lists wit tuples
         Locations of motifs in the sequence that will be framed
     vlim : tuple of floats
@@ -414,13 +414,16 @@ def plot_attribution_maps(att, seq = None, motifs = None, experiments = None,
             att = np.transpose(att, axes = (0,2,1))
         else:
             raise ValueError(f"Shape mismatch: 'channels' length ({len(channels)}) does not match the last two dimensions of 'att' ({att.shape[-1]} or {att.shape[-2]}).")
+    
     if seq is not None:
         if seq.shape != att.shape:
+            if len(seq.shape) != len(att.shape):
+                seq = np.expand_dims(seq, axis = 0)
             if seq.shape[-1] == att.shape[-2] and seq.shape[-2] == att.shape[-1]:
                 seq = np.transpose(seq, axes = (0,2,1))
-            else:
-                raise ValueError(f"Shape mismatch: 'channels' length ({len(channels)}) does not match the last two dimensions of 'seq' {seq.shape[-1]}.")
-
+            if seq.shape[1:] != att.shape[1:]:
+                raise ValueError(f"Shape mismatch: 'seq' shape {seq.shape} does not match 'att' shape {att.shape}.")
+            
     if heatmap:
         if isinstance(heatmap, np.ndarray):
             if heatmap.shape == att.shape:
